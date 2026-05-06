@@ -523,6 +523,10 @@ export const instanceServiceClient = {
   async getInstanceStats(_req?: any) {
     return apiRequest<any>("GET", "/api/v1/instance/stats").catch(() => ({}));
   },
+
+  async testInstanceEmailSetting(req: { email?: any; recipientEmail?: string }) {
+    return apiRequest<any>("POST", "/api/v1/instance/settings/notification:testEmail", req);
+  },
 };
 
 // ============================================================================

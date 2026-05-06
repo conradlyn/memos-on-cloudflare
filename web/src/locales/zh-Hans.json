@@ -565,6 +565,26 @@
       "title": "一般设置",
       "label": "系统"
     },
+    "notification": {
+      "api-key": "Resend API 密钥",
+      "api-key-description": "你的 Resend API 密钥，可在 resend.com/api-keys 获取。",
+      "api-key-placeholder-existing": "留空以保留当前密钥",
+      "email-description": "通过 Resend 发送备忘录评论和提及的邮件通知。",
+      "email-enabled": "启用邮件通知",
+      "email-enabled-description": "邮件通知将作为应用内收件箱通知的补充发送。启用前请先配置 Resend API 密钥和已验证的发件人地址。",
+      "email-title": "邮件发送（Resend）",
+      "from-email": "发件人邮箱",
+      "from-email-description": "Resend 中已验证的发件人地址，必须来自你已验证的域名。",
+      "from-name": "发件人名称",
+      "from-name-description": "显示在发件人地址旁的名称。留空则仅显示邮箱地址。",
+      "label": "通知",
+      "reply-to": "回复地址",
+      "reply-to-description": "通知邮件的回复地址。留空则使用发件人邮箱接收回复。",
+      "test-email": "发送测试邮件",
+      "test-email-missing-recipient": "请先在账号中设置邮箱地址，然后再发送测试邮件。",
+      "test-email-sending": "正在发送测试邮件...",
+      "test-email-success": "测试邮件已发送至 {{email}}。"
+    },
     "select-section": "选择设置项",
     "version": "版本",
     "access-token": {

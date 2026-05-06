@@ -7,8 +7,8 @@
     "dev:web": "cd web && npm run dev",
     "build:web": "cd web && npm run build",
     "deploy": "npm run build:web && wrangler deploy",
-    "db:migrate": "wrangler d1 execute cfmemos-db --local --file=./migrations/0001_initial.sql",
-    "db:migrate:remote": "wrangler d1 execute cfmemos-db --remote --file=./migrations/0001_initial.sql"
+    "db:migrate": "wrangler d1 migrations apply cfmemos-db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply cfmemos-db --remote"
   },
   "dependencies": {
     "hono": "^4.7.0",

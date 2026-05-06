@@ -43,7 +43,7 @@ cd web && npm install && cd ..
 wrangler d1 create cfmemos-db
 
 # 创建 R2 存储桶
-wrangler r2 bucket create cfmemos-bucket
+wrangler r2 bucket create cfmemos
 ```
 
 ### 4. 配置 wrangler.toml

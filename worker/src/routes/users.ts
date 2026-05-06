@@ -4,6 +4,7 @@ import { authRequired, authOptional } from "../middleware/auth";
 import * as userDB from "../db/user";
 import * as settingDB from "../db/setting";
 import * as memoDB from "../db/memo";
+import * as webhookDB from "../db/webhook";
 import { hashPassword } from "../auth/password";
 import { generatePAT, hashPAT } from "../auth/pat";
 
@@ -448,5 +449,93 @@ userRoutes.delete("/:username/notifications/:notifId", authRequired, async (c) =
   await c.env.DB.prepare("DELETE FROM inbox WHERE id = ? AND receiver_id = ?")
     .bind(notifId, currentUser.id).run();
 
+  return c.json({});
+});
+
+// --- Webhooks ---
+function formatWebhook(webhook: webhookDB.WebhookRow, username: string) {
+  return {
+    name: `users/${username}/webhooks/${webhook.id}`,
+    url: webhook.url,
+    displayName: webhook.display_name,
+    createTime: new Date(webhook.created_ts * 1000).toISOString(),
+    updateTime: new Date(webhook.updated_ts * 1000).toISOString(),
+  };
+}
+
+userRoutes.get("/:username/webhooks", authRequired, async (c) => {
+  const username = c.req.param("username");
+  const currentUser = c.get("user");
+  const user = await userDB.findUserByUsername(c.env.DB, username);
+  if (!user) return c.json({ error: "User not found" }, 404);
+  if (user.id !== currentUser.id && currentUser.role !== "ADMIN") {
+    return c.json({ error: "Permission denied" }, 403);
+  }
+
+  const webhooks = await webhookDB.listWebhooksByCreatorId(c.env.DB, user.id);
+  return c.json({ webhooks: webhooks.map((w) => formatWebhook(w, username)) });
+});
+
+userRoutes.post("/:username/webhooks", authRequired, async (c) => {
+  const username = c.req.param("username");
+  const currentUser = c.get("user");
+  const user = await userDB.findUserByUsername(c.env.DB, username);
+  if (!user) return c.json({ error: "User not found" }, 404);
+  if (user.id !== currentUser.id && currentUser.role !== "ADMIN") {
+    return c.json({ error: "Permission denied" }, 403);
+  }
+
+  const body = await c.req.json<{ url?: string; displayName?: string }>();
+  if (!body.url) return c.json({ error: "url is required" }, 400);
+
+  const webhook = await webhookDB.createWebhook(c.env.DB, {
+    creatorId: user.id,
+    url: body.url,
+    displayName: body.displayName || "",
+  });
+  return c.json(formatWebhook(webhook, username), 201);
+});
+
+userRoutes.patch("/:username/webhooks/:webhookId", authRequired, async (c) => {
+  const username = c.req.param("username");
+  const webhookId = Number(c.req.param("webhookId"));
+  const currentUser = c.get("user");
+  const user = await userDB.findUserByUsername(c.env.DB, username);
+  if (!user) return c.json({ error: "User not found" }, 404);
+  if (user.id !== currentUser.id && currentUser.role !== "ADMIN") {
+    return c.json({ error: "Permission denied" }, 403);
+  }
+
+  const existing = await webhookDB.getWebhookById(c.env.DB, webhookId);
+  if (!existing || existing.creator_id !== user.id) {
+    return c.json({ error: "Webhook not found" }, 404);
+  }
+
+  const body = await c.req.json<{ url?: string; displayName?: string }>();
+  const updateData: Partial<{ url: string; display_name: string }> = {};
+  if (body.url !== undefined) updateData.url = body.url;
+  if (body.displayName !== undefined) updateData.display_name = body.displayName;
+
+  const updated = await webhookDB.updateWebhook(c.env.DB, webhookId, updateData);
+  if (!updated) return c.json({ error: "Update failed" }, 500);
+  return c.json(formatWebhook(updated, username));
+});
+
+userRoutes.delete("/:username/webhooks/:webhookId", authRequired, async (c) => {
+  const username = c.req.param("username");
+  const webhookId = Number(c.req.param("webhookId"));
+  const currentUser = c.get("user");
+  const user = await userDB.findUserByUsername(c.env.DB, username);
+  if (!user) return c.json({ error: "User not found" }, 404);
+  if (user.id !== currentUser.id && currentUser.role !== "ADMIN") {
+    return c.json({ error: "Permission denied" }, 403);
+  }
+
+  const existing = await webhookDB.getWebhookById(c.env.DB, webhookId);
+  if (!existing || existing.creator_id !== user.id) {
+    return c.json({ error: "Webhook not found" }, 404);
+  }
+
+  await webhookDB.deleteWebhook(c.env.DB, webhookId);
   return c.json({});
 });

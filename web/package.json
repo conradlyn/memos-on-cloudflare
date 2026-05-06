@@ -1,7 +1,6 @@
 {
   "name": "cfmemos",
   "private": true,
-  "packageManager": "pnpm@11.0.1",
   "engines": {
     "node": ">=20"
   },

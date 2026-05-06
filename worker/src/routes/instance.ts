@@ -58,6 +58,63 @@ instanceRoutes.get("/settings", async (c) => {
   return c.json({ settings });
 });
 
+// Test email setting via Resend (admin only)
+instanceRoutes.post("/settings/notification\\:testEmail", authRequired, async (c) => {
+  const currentUser = c.get("user");
+  if (currentUser.role !== "ADMIN") {
+    return c.json({ error: "Admin only" }, 403);
+  }
+
+  const body = await c.req.json<{ email?: { apiKey?: string; fromEmail?: string; fromName?: string }; recipientEmail?: string }>();
+
+  let apiKey = body.email?.apiKey;
+  let fromEmail = body.email?.fromEmail;
+  let fromName = body.email?.fromName;
+
+  if (!apiKey || !fromEmail) {
+    const setting = await settingDB.getSystemSetting(c.env.DB, "NOTIFICATION");
+    if (setting) {
+      const parsed = JSON.parse(setting.value);
+      const email = parsed.email || {};
+      if (!apiKey) apiKey = email.apiKey;
+      if (!fromEmail) fromEmail = email.fromEmail;
+      if (!fromName) fromName = email.fromName;
+    }
+  }
+
+  if (!apiKey || !fromEmail) {
+    return c.json({ error: "Resend API key and from email are required" }, 400);
+  }
+
+  const recipientEmail = body.recipientEmail;
+  if (!recipientEmail) {
+    return c.json({ error: "Recipient email is required" }, 400);
+  }
+
+  const from = fromName ? `${fromName} <${fromEmail}>` : fromEmail;
+
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from,
+      to: [recipientEmail],
+      subject: "Test email from Memos",
+      html: "<p>This is a test email sent from your Memos instance to verify the email configuration.</p>",
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    return c.json({ error: `Resend API error: ${err}` }, 502);
+  }
+
+  return c.json({});
+});
+
 // Update instance setting (admin only)
 instanceRoutes.patch("/settings/*", authRequired, async (c) => {
   const currentUser = c.get("user");

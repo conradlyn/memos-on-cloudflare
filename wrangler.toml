@@ -11,11 +11,11 @@ JWT_SECRET = "cfmemos-dev-secret-change-in-production"
 [[d1_databases]]
 binding = "DB"
 database_name = "cfmemos-db"
-database_id = "placeholder-replace-after-create"
+database_id = "efb2f813-c777-494c-941a-cd34bc0e7d5b"
 
 [[r2_buckets]]
 binding = "BUCKET"
-bucket_name = "cfmemos-bucket"
+bucket_name = "cfmemos"
 
 [ai]
 binding = "AI"
