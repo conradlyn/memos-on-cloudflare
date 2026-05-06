@@ -3,6 +3,7 @@ import { isEqual, uniq } from "lodash-es";
 import { CheckIcon, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "react-hot-toast";
+import { DEFAULT_MEMO_REACTIONS } from "@/helpers/default-reactions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,21 +40,20 @@ const MemoRelatedSettings = () => {
     setMemoRelatedSetting(newInstanceMemoRelatedSetting);
   };
 
+  const ensureReactions = (reactions: string[]) => (reactions.length > 0 ? reactions : [...DEFAULT_MEMO_REACTIONS]);
+
   const upsertReaction = () => {
     const trimmed = editingReaction.trim();
     if (!trimmed) {
       return;
     }
 
-    updatePartialSetting({ reactions: uniq([...memoRelatedSetting.reactions, trimmed]) });
+    updatePartialSetting({ reactions: ensureReactions(uniq([...memoRelatedSetting.reactions, trimmed])) });
     setEditingReaction("");
   };
 
   const handleUpdateSetting = async () => {
-    if (memoRelatedSetting.reactions.length === 0) {
-      toast.error(t("setting.memo.reactions-required"));
-      return;
-    }
+    const normalizedReactions = ensureReactions(memoRelatedSetting.reactions);
 
     await saveInstanceSetting({
       key: InstanceSetting_Key.MEMO_RELATED,
@@ -61,7 +61,10 @@ const MemoRelatedSettings = () => {
         name: buildInstanceSettingName(InstanceSetting_Key.MEMO_RELATED),
         value: {
           case: "memoRelatedSetting",
-          value: memoRelatedSetting,
+          value: {
+            ...memoRelatedSetting,
+            reactions: normalizedReactions,
+          },
         },
       }),
       errorContext: "Update memo-related settings",
@@ -130,7 +133,7 @@ const MemoRelatedSettings = () => {
                 <button
                   type="button"
                   className="text-muted-foreground transition-colors hover:text-destructive"
-                  onClick={() => updatePartialSetting({ reactions: memoRelatedSetting.reactions.filter((r) => r !== reactionType) })}
+                  onClick={() => updatePartialSetting({ reactions: ensureReactions(memoRelatedSetting.reactions.filter((r) => r !== reactionType)) })}
                   aria-label={t("setting.memo.remove-reaction")}
                 >
                   <X className="size-3.5" />

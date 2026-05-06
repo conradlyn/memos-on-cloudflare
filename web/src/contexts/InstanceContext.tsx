@@ -1,6 +1,7 @@
 import { create } from "@bufbuild/protobuf";
 import { createContext, type ReactNode, useCallback, useContext, useMemo, useRef, useState } from "react";
 import { instanceServiceClient } from "@/connect";
+import { DEFAULT_MEMO_REACTIONS } from "@/helpers/default-reactions";
 import {
   InstanceProfile,
   InstanceProfileSchema,
@@ -77,9 +78,9 @@ export function InstanceProvider({ children }: { children: ReactNode }) {
     const setting = state.settings.find((s) => s.name === `${instanceSettingNamePrefix}MEMO_RELATED`);
     if (setting?.value.case === "memoRelatedSetting") {
       const val = setting.value.value;
-      return { ...val, reactions: val.reactions || [] };
+      return { ...val, reactions: val.reactions?.length ? val.reactions : [...DEFAULT_MEMO_REACTIONS] };
     }
-    return create(InstanceSetting_MemoRelatedSettingSchema, { reactions: [] });
+    return create(InstanceSetting_MemoRelatedSettingSchema, { reactions: [...DEFAULT_MEMO_REACTIONS] });
   }, [state.settings]);
 
   const storageSetting = useMemo((): InstanceSetting_StorageSetting => {
