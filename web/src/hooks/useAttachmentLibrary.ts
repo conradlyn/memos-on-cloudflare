@@ -9,7 +9,7 @@ import {
 } from "@/components/MemoMetadata/Attachment/attachmentHelpers";
 import { useInfiniteAttachments } from "@/hooks/useAttachmentQueries";
 import type { Attachment } from "@/types/proto/api/v1/attachment_service_pb";
-import { isMotionAttachment } from "@/utils/attachment";
+import { getAttachmentUrl, isMotionAttachment } from "@/utils/attachment";
 import { useTranslate } from "@/utils/i18n";
 import { type AttachmentVisualItem, buildAttachmentVisualItems } from "@/utils/media-item";
 
@@ -81,7 +81,7 @@ const toLibraryListItem = (attachment: Attachment, locale: string): AttachmentLi
     fileTypeLabel,
     fileSizeLabel,
     memoName: attachment.memo,
-    sourceUrl: attachment.externalLink || `${window.location.origin}/file/${attachment.name}/${attachment.filename}`,
+    sourceUrl: getAttachmentUrl(attachment),
   };
 };
 

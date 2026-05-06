@@ -1,6 +1,8 @@
 import { Hono } from "hono";
+import { getCookie } from "hono/cookie";
 import type { Env, UserPayload } from "../types";
 import { authOptional } from "../middleware/auth";
+import { verifyRefreshToken } from "../auth/jwt";
 
 type FileApp = { Bindings: Env; Variables: { user: UserPayload } };
 
@@ -12,6 +14,30 @@ const UNSAFE_MIME_TYPES = new Set([
   "image/svg+xml",
   "application/xhtml+xml",
 ]);
+
+const resolveUserFromRequest = async (c: { req: { header: (name: string) => string | undefined }; env: Env; get: (key: "user") => UserPayload | undefined }) => {
+  const existingUser = c.get("user");
+  if (existingUser) {
+    return existingUser;
+  }
+
+  const refreshToken = getCookie(c as any, "memos_refresh");
+  if (!refreshToken) {
+    return undefined;
+  }
+
+  try {
+    const claims = await verifyRefreshToken(refreshToken, c.env.JWT_SECRET);
+    return {
+      id: Number(claims.sub),
+      username: claims.name,
+      role: claims.role,
+      status: claims.status,
+    };
+  } catch {
+    return undefined;
+  }
+};
 
 // Serve attachment file
 fileRoutes.get("/attachments/:uid/:filename", authOptional, async (c) => {
@@ -31,7 +57,7 @@ fileRoutes.get("/attachments/:uid/:filename", authOptional, async (c) => {
     ).bind(att.memo_id).first<{ visibility: string; creator_id: number }>();
 
     if (memo) {
-      const user = c.get("user");
+      const user = await resolveUserFromRequest(c);
       if (memo.visibility === "PRIVATE" && (!user || user.id !== memo.creator_id)) {
         return c.json({ error: "Permission denied" }, 403);
       }

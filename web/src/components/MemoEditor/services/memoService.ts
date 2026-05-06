@@ -138,7 +138,7 @@ export const memoService = {
         attachments: allAttachments,
       });
     }
-    if (state.metadata.relations.length > 0) {
+    if (!options.parentMemoName && state.metadata.relations.length > 0) {
       await memoServiceClient.setMemoRelations({
         name: memo.name,
         relations: state.metadata.relations,

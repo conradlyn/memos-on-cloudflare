@@ -23,6 +23,8 @@ export interface AttachmentRow {
   payload: string;
 }
 
+const nowTs = () => Math.floor(Date.now() / 1000);
+
 function formatAttachment(att: AttachmentRow) {
   return {
     name: `attachments/${att.id}`,
@@ -116,11 +118,12 @@ attachmentRoutes.post("/", authRequired, async (c) => {
   });
 
   // Store metadata in D1
+  const createdTs = nowTs();
   const att = await c.env.DB.prepare(
-    `INSERT INTO attachment (uid, creator_id, filename, type, size, storage_type, reference)
-     VALUES (?, ?, ?, ?, ?, 'R2', ?) RETURNING *`
+    `INSERT INTO attachment (uid, creator_id, created_ts, updated_ts, filename, type, size, storage_type, reference)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'R2', ?) RETURNING *`
   )
-    .bind(uid, user.id, filename, fileType, fileData.byteLength, r2Key)
+    .bind(uid, user.id, createdTs, createdTs, filename, fileType, fileData.byteLength, r2Key)
     .first<AttachmentRow>();
 
   return c.json(formatAttachment(att!), 201);
@@ -131,19 +134,29 @@ attachmentRoutes.get("/", authRequired, async (c) => {
   const user = c.get("user");
   const pageSize = Math.min(Number(c.req.query("pageSize")) || 50, 1000);
   const pageToken = c.req.query("pageToken");
+  const filter = c.req.query("filter") || "";
   let offset = 0;
   if (pageToken) {
     try { offset = Number(atob(pageToken)); } catch {}
   }
 
+  const whereConditions = ["creator_id = ?"];
+  const params: (string | number | null)[] = [user.id];
+
+  if (filter.includes("memo_id == null") || filter.includes("memo == null")) {
+    whereConditions.push("memo_id IS NULL");
+  }
+
+  const whereClause = `WHERE ${whereConditions.join(" AND ")}`;
+
   const countResult = await c.env.DB.prepare(
-    "SELECT COUNT(*) as total FROM attachment WHERE creator_id = ?"
-  ).bind(user.id).first<{ total: number }>();
+    `SELECT COUNT(*) as total FROM attachment ${whereClause}`
+  ).bind(...params).first<{ total: number }>();
   const total = countResult?.total ?? 0;
 
   const { results } = await c.env.DB.prepare(
-    "SELECT * FROM attachment WHERE creator_id = ? ORDER BY created_ts DESC LIMIT ? OFFSET ?"
-  ).bind(user.id, pageSize, offset).all<AttachmentRow>();
+    `SELECT * FROM attachment ${whereClause} ORDER BY created_ts DESC LIMIT ? OFFSET ?`
+  ).bind(...params, pageSize, offset).all<AttachmentRow>();
 
   const nextPageToken = offset + pageSize < total ? btoa(String(offset + pageSize)) : "";
 

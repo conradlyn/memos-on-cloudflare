@@ -79,6 +79,51 @@ function formatMemo(memo: memoDB.MemoRow, creatorUsername?: string) {
   };
 }
 
+async function getMemoAttachments(db: D1Database, memoId: number) {
+  const { results } = await db.prepare("SELECT * FROM attachment WHERE memo_id = ? ORDER BY created_ts ASC").bind(memoId).all<any>();
+  return results.map((att) => ({
+    name: `attachments/${att.id}`,
+    uid: att.uid,
+    createTime: new Date(att.created_ts * 1000).toISOString(),
+    filename: att.filename,
+    type: att.type,
+    size: att.size,
+    memo: `memos/${memoId}`,
+    externalLink: "",
+    motionMedia: (() => {
+      try {
+        return att.payload ? JSON.parse(att.payload).motionMedia : undefined;
+      } catch {
+        return undefined;
+      }
+    })(),
+  }));
+}
+
+async function getMemoRelations(db: D1Database, memoId: number) {
+  const relations = await relationDB.listRelations(db, memoId);
+  return Promise.all(
+    relations.map(async (relation) => {
+      const memo = await memoDB.getMemoById(db, relation.memo_id);
+      const relatedMemo = await memoDB.getMemoById(db, relation.related_memo_id);
+      return {
+        memo: memo ? { name: `memos/${memo.id}`, snippet: memo.content.slice(0, 120) } : undefined,
+        relatedMemo: relatedMemo ? { name: `memos/${relatedMemo.id}`, snippet: relatedMemo.content.slice(0, 120) } : undefined,
+        type: relation.type,
+      };
+    }),
+  );
+}
+
+async function enrichMemo(db: D1Database, memo: memoDB.MemoRow, creatorUsername?: string) {
+  const [attachments, relations] = await Promise.all([getMemoAttachments(db, memo.id), getMemoRelations(db, memo.id)]);
+  return {
+    ...formatMemo(memo, creatorUsername),
+    attachments,
+    relations,
+  };
+}
+
 async function resolveCreatorUsernames(db: D1Database, memos: memoDB.MemoRow[]): Promise<Map<number, string>> {
   const creatorIds = [...new Set(memos.map((m) => m.creator_id))];
   const usernameMap = new Map<number, string>();
@@ -131,7 +176,7 @@ memoRoutes.post("/", authRequired, async (c) => {
     updatedTs,
   });
 
-  return c.json(formatMemo(memo, user.username), 201);
+  return c.json(await enrichMemo(c.env.DB, memo, user.username), 201);
 });
 
 // List memos
@@ -207,7 +252,7 @@ memoRoutes.get("/", authOptional, async (c) => {
   const usernameMap = await resolveCreatorUsernames(c.env.DB, filtered);
 
   return c.json({
-    memos: filtered.map((m) => formatMemo(m, usernameMap.get(m.creator_id))),
+    memos: await Promise.all(filtered.map((m) => enrichMemo(c.env.DB, m, usernameMap.get(m.creator_id)))),
     nextPageToken,
     totalSize: total,
   });
@@ -238,7 +283,7 @@ memoRoutes.get("/:id", authOptional, async (c) => {
   }
 
   const creatorUser = await c.env.DB.prepare("SELECT username FROM user WHERE id = ?").bind(memo.creator_id).first<{ username: string }>();
-  return c.json(formatMemo(memo, creatorUser?.username));
+  return c.json(await enrichMemo(c.env.DB, memo, creatorUser?.username));
 });
 
 // Update memo
@@ -298,7 +343,7 @@ memoRoutes.patch("/:id", authRequired, async (c) => {
   }
 
   const creatorName = updated.creator_id === user.id ? user.username : (await c.env.DB.prepare("SELECT username FROM user WHERE id = ?").bind(updated.creator_id).first<{ username: string }>())?.username;
-  return c.json(formatMemo(updated, creatorName));
+  return c.json(await enrichMemo(c.env.DB, updated, creatorName));
 });
 
 // Delete memo
@@ -383,7 +428,7 @@ memoRoutes.post("/:id/comments", authRequired, async (c) => {
     type: "COMMENT",
   });
 
-  return c.json(formatMemo(comment, user.username), 201);
+  return c.json(await enrichMemo(c.env.DB, comment, user.username), 201);
 });
 
 memoRoutes.get("/:id/comments", authOptional, async (c) => {
@@ -403,7 +448,7 @@ memoRoutes.get("/:id/comments", authOptional, async (c) => {
   }
 
   const usernameMap = await resolveCreatorUsernames(c.env.DB, comments);
-  return c.json({ memos: comments.map((m) => formatMemo(m, usernameMap.get(m.creator_id))) });
+  return c.json({ memos: await Promise.all(comments.map((m) => enrichMemo(c.env.DB, m, usernameMap.get(m.creator_id)))) });
 });
 
 // --- Memo Reactions ---
@@ -543,7 +588,7 @@ memoRoutes.get("/shares/:token", async (c) => {
   }
 
   const creatorUser = await c.env.DB.prepare("SELECT username FROM user WHERE id = ?").bind(memo.creator_id).first<{ username: string }>();
-  return c.json(formatMemo(memo, creatorUser?.username));
+  return c.json(await enrichMemo(c.env.DB, memo, creatorUser?.username));
 });
 
 // --- Link metadata ---

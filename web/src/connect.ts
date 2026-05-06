@@ -442,16 +442,19 @@ export const attachmentServiceClient = {
       formData.append("file", att.file);
     }
 
-    return apiRequest<any>("POST", "/api/v1/attachments", formData, { isFormData: true });
+    const data = await apiRequest<any>("POST", "/api/v1/attachments", formData, { isFormData: true });
+    return normalizeAttachment(data);
   },
 
   async listAttachments(req?: any) {
     const params: Record<string, unknown> = {};
     if (req?.pageSize) params.pageSize = req.pageSize;
     if (req?.pageToken) params.pageToken = req.pageToken;
+    if (req?.filter) params.filter = req.filter;
+    if (req?.orderBy) params.orderBy = req.orderBy;
     const data = await apiRequest<any>("GET", `/api/v1/attachments${buildQueryString(params)}`);
     return {
-      attachments: data.attachments || [],
+      attachments: (data.attachments || []).map(normalizeAttachment),
       nextPageToken: data.nextPageToken || "",
       totalSize: data.totalSize || 0,
     };
@@ -459,13 +462,15 @@ export const attachmentServiceClient = {
 
   async getAttachment(req: { name: string }) {
     const id = extractId(req.name, "attachments/");
-    return apiRequest<any>("GET", `/api/v1/attachments/${id}`);
+    const data = await apiRequest<any>("GET", `/api/v1/attachments/${id}`);
+    return normalizeAttachment(data);
   },
 
   async updateAttachment(req: { attachment: any; updateMask?: any }) {
     const att = req.attachment || {};
     const id = extractId(att.name, "attachments/");
-    return apiRequest<any>("PATCH", `/api/v1/attachments/${id}`, att);
+    const data = await apiRequest<any>("PATCH", `/api/v1/attachments/${id}`, att);
+    return normalizeAttachment(data);
   },
 
   async deleteAttachment(req: { name: string }) {
@@ -697,8 +702,8 @@ function normalizeMemo(data: any): any {
     pinned: data.pinned ?? false,
     content: data.content ?? "",
     tags: data.tags || [],
-    attachments: data.attachments || [],
-    relations: data.relations || [],
+    attachments: (data.attachments || []).map(normalizeAttachment),
+    relations: (data.relations || []).map(normalizeRelation),
     reactions: normalizeReactions(data.reactions || []),
     property: data.property || {},
     parent: data.parent || "",
@@ -717,6 +722,32 @@ function normalizeUser(data: any): any {
     createTime: isoToTimestamp(data.createTime),
     updateTime: isoToTimestamp(data.updateTime),
     role: typeof data.role === "string" ? (data.role === "ADMIN" ? 2 : 1) : data.role,
+  };
+}
+
+function normalizeAttachment(data: any): any {
+  if (!data) return data;
+  const memoName =
+    data.memo ||
+    (data.memoId !== undefined && data.memoId !== null ? `memos/${data.memoId}` : data.memo_id !== undefined && data.memo_id !== null ? `memos/${data.memo_id}` : undefined);
+  return {
+    ...data,
+    name: data.name || `attachments/${data.id || data.uid}`,
+    createTime: isoToTimestamp(data.createTime || data.created_ts),
+    memo: memoName,
+    externalLink: data.externalLink || data.external_link || "",
+    motionMedia: data.motionMedia || data.motion_media,
+  };
+}
+
+function normalizeRelation(data: any): any {
+  if (!data) return data;
+  return {
+    ...data,
+    memo: data.memo || (data.memo_id ? { name: `memos/${data.memo_id}`, snippet: "" } : undefined),
+    relatedMemo:
+      data.relatedMemo || (data.related_memo_id ? { name: `memos/${data.related_memo_id}`, snippet: "" } : undefined),
+    type: typeof data.type === "string" ? (data.type === "COMMENT" ? 2 : 1) : data.type,
   };
 }
 

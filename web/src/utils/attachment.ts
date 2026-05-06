@@ -5,14 +5,29 @@ export const getAttachmentUrl = (attachment: Attachment) => {
     return attachment.externalLink;
   }
 
+  const uid = (attachment as unknown as { uid?: string }).uid;
+  if (uid) {
+    return `${window.location.origin}/file/attachments/${uid}/${attachment.filename}`;
+  }
+
   return `${window.location.origin}/file/${attachment.name}/${attachment.filename}`;
 };
 
 export const getAttachmentThumbnailUrl = (attachment: Attachment) => {
+  const uid = (attachment as unknown as { uid?: string }).uid;
+  if (uid) {
+    return `${window.location.origin}/file/attachments/${uid}/${attachment.filename}?thumbnail=true`;
+  }
+
   return `${window.location.origin}/file/${attachment.name}/${attachment.filename}?thumbnail=true`;
 };
 
 export const getAttachmentMotionClipUrl = (attachment: Attachment) => {
+  const uid = (attachment as unknown as { uid?: string }).uid;
+  if (uid) {
+    return `${window.location.origin}/file/attachments/${uid}/${attachment.filename}?motion=true`;
+  }
+
   return `${window.location.origin}/file/${attachment.name}/${attachment.filename}?motion=true`;
 };
 
