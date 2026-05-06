@@ -1,0 +1,24 @@
+{
+  "name": "cfmemos",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "dev:web": "cd web && npm run dev",
+    "build:web": "cd web && npm run build",
+    "deploy": "npm run build:web && wrangler deploy",
+    "db:migrate": "wrangler d1 execute cfmemos-db --local --file=./migrations/0001_initial.sql",
+    "db:migrate:remote": "wrangler d1 execute cfmemos-db --remote --file=./migrations/0001_initial.sql"
+  },
+  "dependencies": {
+    "hono": "^4.7.0",
+    "jose": "^6.0.0",
+    "bcryptjs": "^2.4.3"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250501.0",
+    "@types/bcryptjs": "^2.4.6",
+    "typescript": "^5.7.0",
+    "wrangler": "^4.14.0"
+  }
+}

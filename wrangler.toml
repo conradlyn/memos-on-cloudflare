@@ -1,0 +1,21 @@
+name = "cfmemos"
+main = "worker/src/index.ts"
+compatibility_date = "2025-05-01"
+
+assets = { directory = "./web/dist", binding = "ASSETS", not_found_handling = "single-page-application" }
+
+[vars]
+INSTANCE_NAME = "cfmemos"
+JWT_SECRET = "cfmemos-dev-secret-change-in-production"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "cfmemos-db"
+database_id = "placeholder-replace-after-create"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "cfmemos-bucket"
+
+[ai]
+binding = "AI"
