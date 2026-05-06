@@ -235,11 +235,11 @@ const MemoEditorImpl: React.FC<MemoEditorProps> = ({
 
   async function handleSave() {
     // Validate before saving
-    const { valid, reason } = validationService.canSave(state, {
+    const { valid, reason, reasonKey, reasonParams } = validationService.canSave(state, {
       contentLengthLimit: memoRelatedSetting.contentLengthLimit,
     });
     if (!valid) {
-      toast.error(reason || "Cannot save");
+      toast.error(reasonKey ? t(reasonKey, reasonParams) : (reason || "Cannot save"));
       return;
     }
 

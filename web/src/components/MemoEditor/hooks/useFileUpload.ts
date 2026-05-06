@@ -3,13 +3,27 @@ import { useRef } from "react";
 import { type MotionMedia, MotionMediaFamily, MotionMediaRole, MotionMediaSchema } from "@/types/proto/api/v1/attachment_service_pb";
 import type { LocalFile } from "../types/attachment";
 
-export const useFileUpload = (onFilesSelected: (localFiles: LocalFile[]) => void) => {
+interface UseFileUploadOptions {
+  onFilesSelected: (localFiles: LocalFile[]) => void;
+  maxFileSizeBytes?: number;
+  onFileRejected?: (file: File) => void;
+}
+
+export const useFileUpload = ({ onFilesSelected, maxFileSizeBytes, onFileRejected }: UseFileUploadOptions) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const selectingFlagRef = useRef(false);
 
   const handleFileInputChange = (event?: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(fileInputRef.current?.files || event?.target.files || []);
+    const selectedFiles = Array.from(fileInputRef.current?.files || event?.target.files || []);
+    const files = selectedFiles.filter((file) => {
+      const allowed = !maxFileSizeBytes || file.size <= maxFileSizeBytes;
+      if (!allowed) {
+        onFileRejected?.(file);
+      }
+      return allowed;
+    });
     if (files.length === 0 || selectingFlagRef.current) {
+      if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
     selectingFlagRef.current = true;

@@ -13,10 +13,12 @@ import {
   PlusIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "react-hot-toast";
 import { useDebounce } from "react-use";
 import { LinkMemoDialog, LocationDialog } from "@/components/MemoMetadata";
 import { useReverseGeocoding } from "@/components/map";
 import { Button } from "@/components/ui/button";
+import { useInstance } from "@/contexts/InstanceContext";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,6 +40,7 @@ import type { LocalFile } from "../types/attachment";
 const InsertMenu = (props: InsertMenuProps) => {
   const t = useTranslate();
   const { state, actions, dispatch } = useEditorContext();
+  const { storageSetting } = useInstance();
   const { location: initialLocation, onLocationChange, onToggleFocusMode, isUploading: isUploadingProp } = props;
 
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
@@ -49,8 +52,20 @@ const InsertMenu = (props: InsertMenuProps) => {
     setMoreSubmenuOpen,
   );
 
-  const { fileInputRef, selectingFlag, handleFileInputChange, handleUploadClick } = useFileUpload((newFiles: LocalFile[]) => {
-    newFiles.forEach((file) => dispatch(actions.addLocalFile(file)));
+  const maxUploadSizeMiB = useMemo(() => {
+    const value = Number(storageSetting.uploadSizeLimitMb || 0);
+    return value > 0 ? value : 100;
+  }, [storageSetting.uploadSizeLimitMb]);
+  const maxUploadSizeBytes = useMemo(() => maxUploadSizeMiB * 1024 * 1024, [maxUploadSizeMiB]);
+
+  const { fileInputRef, selectingFlag, handleFileInputChange, handleUploadClick } = useFileUpload({
+    onFilesSelected: (newFiles: LocalFile[]) => {
+      newFiles.forEach((file) => dispatch(actions.addLocalFile(file)));
+    },
+    maxFileSizeBytes: maxUploadSizeBytes,
+    onFileRejected: () => {
+      toast.error(t("message.maximum-upload-size-is", { size: maxUploadSizeMiB }));
+    },
   });
 
   const linkMemo = useLinkMemo({

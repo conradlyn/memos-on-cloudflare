@@ -70,11 +70,10 @@ const StorageSection = () => {
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2 text-sm font-medium text-foreground">
               <ServerIcon className="size-4" />
-              <span>Cloudflare R2 object storage</span>
+              <span>{t("setting.storage.current-backend-r2")}</span>
             </div>
             <p className="text-xs leading-5 text-muted-foreground">
-              This deployment currently stores attachments in the worker's configured object bucket. Changing storage backend, filepath
-              template, or S3 credentials is not yet supported by the backend implementation.
+              {t("setting.storage.current-backend-description")}
             </p>
           </div>
         </SettingPanel>
@@ -95,10 +94,7 @@ const StorageSection = () => {
         <SettingPanel className="rounded-md border border-border bg-muted/20 px-3 py-3">
           <div className="flex items-start gap-2 text-xs leading-5 text-muted-foreground">
             <HardDriveUploadIcon className="mt-0.5 size-4 shrink-0" />
-            <span>
-              This value is enforced by the attachment upload API. Existing files are unaffected; only newly uploaded attachments must stay
-              within this limit.
-            </span>
+            <span>{t("setting.storage.upload-limit-description")}</span>
           </div>
         </SettingPanel>
       </SettingGroup>

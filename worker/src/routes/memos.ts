@@ -11,6 +11,8 @@ type MemoApp = { Bindings: Env; Variables: { user: UserPayload } };
 
 export const memoRoutes = new Hono<MemoApp>();
 
+const getUtf8ByteLength = (value: string) => new TextEncoder().encode(value).length;
+
 const getMemoContentLengthLimit = async (db: D1Database) => {
   const setting = await settingDB.getInstanceSetting(db, "MEMO_RELATED");
   if (!setting) {
@@ -99,7 +101,7 @@ memoRoutes.post("/", authRequired, async (c) => {
   }
 
   const contentLengthLimit = await getMemoContentLengthLimit(c.env.DB);
-  if (contentLengthLimit > 0 && (content || "").length > contentLengthLimit) {
+  if (contentLengthLimit > 0 && getUtf8ByteLength(content || "") > contentLengthLimit) {
     return c.json({ error: `Memo content exceeds the maximum allowed length of ${contentLengthLimit} bytes.` }, 400);
   }
 
@@ -253,7 +255,7 @@ memoRoutes.patch("/:id", authRequired, async (c) => {
 
   if (body.content !== undefined) {
     const contentLengthLimit = await getMemoContentLengthLimit(c.env.DB);
-    if (contentLengthLimit > 0 && body.content.length > contentLengthLimit) {
+    if (contentLengthLimit > 0 && getUtf8ByteLength(body.content) > contentLengthLimit) {
       return c.json({ error: `Memo content exceeds the maximum allowed length of ${contentLengthLimit} bytes.` }, 400);
     }
     updateData.content = body.content;
