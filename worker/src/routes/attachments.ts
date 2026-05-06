@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Env, UserPayload } from "../types";
 import { authRequired } from "../middleware/auth";
+import * as settingDB from "../db/setting";
 
 type AttApp = { Bindings: Env; Variables: { user: UserPayload } };
 
@@ -37,12 +38,28 @@ function formatAttachment(att: AttachmentRow) {
   };
 }
 
-const MAX_UPLOAD_SIZE = 100 * 1024 * 1024; // 100MB
+const DEFAULT_MAX_UPLOAD_SIZE_MB = 100;
+
+const getMaxUploadSizeMb = async (db: D1Database) => {
+  const setting = await settingDB.getInstanceSetting(db, "STORAGE");
+  if (!setting) {
+    return DEFAULT_MAX_UPLOAD_SIZE_MB;
+  }
+  try {
+    const parsed = JSON.parse(setting.value) || {};
+    const limit = Number(parsed.uploadSizeLimitMb);
+    return limit > 0 ? limit : DEFAULT_MAX_UPLOAD_SIZE_MB;
+  } catch {
+    return DEFAULT_MAX_UPLOAD_SIZE_MB;
+  }
+};
 
 // Upload attachment
 attachmentRoutes.post("/", authRequired, async (c) => {
   const user = c.get("user");
   const contentType = c.req.header("content-type") || "";
+  const maxUploadSizeMb = await getMaxUploadSizeMb(c.env.DB);
+  const maxUploadSize = maxUploadSizeMb * 1024 * 1024;
 
   let filename: string;
   let fileType: string;
@@ -52,7 +69,7 @@ attachmentRoutes.post("/", authRequired, async (c) => {
     const formData = await c.req.formData();
     const file = formData.get("file") as File | null;
     if (!file) return c.json({ error: "No file provided" }, 400);
-    if (file.size > MAX_UPLOAD_SIZE) return c.json({ error: "File too large. Maximum upload size is 100MB." }, 413);
+    if (file.size > maxUploadSize) return c.json({ error: `File too large. Maximum upload size is ${maxUploadSizeMb}MB.` }, 413);
     filename = file.name;
     fileType = file.type;
     fileData = await file.arrayBuffer();
@@ -62,7 +79,7 @@ attachmentRoutes.post("/", authRequired, async (c) => {
     fileType = body.type || "application/octet-stream";
     if (body.content) {
       const binary = atob(body.content);
-      if (binary.length > MAX_UPLOAD_SIZE) return c.json({ error: "File too large. Maximum upload size is 100MB." }, 413);
+      if (binary.length > maxUploadSize) return c.json({ error: `File too large. Maximum upload size is ${maxUploadSizeMb}MB.` }, 413);
       const bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i++) {
         bytes[i] = binary.charCodeAt(i);

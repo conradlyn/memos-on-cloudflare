@@ -5,10 +5,24 @@ import * as memoDB from "../db/memo";
 import * as relationDB from "../db/relation";
 import * as reactionDB from "../db/reaction";
 import * as shareDB from "../db/share";
+import * as settingDB from "../db/setting";
 
 type MemoApp = { Bindings: Env; Variables: { user: UserPayload } };
 
 export const memoRoutes = new Hono<MemoApp>();
+
+const getMemoContentLengthLimit = async (db: D1Database) => {
+  const setting = await settingDB.getInstanceSetting(db, "MEMO_RELATED");
+  if (!setting) {
+    return 0;
+  }
+  try {
+    const parsed = JSON.parse(setting.value) || {};
+    return Number(parsed.contentLengthLimit) || 0;
+  } catch {
+    return 0;
+  }
+};
 
 function generateUid(): string {
   return crypto.randomUUID().replace(/-/g, "").slice(0, 22);
@@ -82,6 +96,11 @@ memoRoutes.post("/", authRequired, async (c) => {
 
   if (!content && content !== "") {
     return c.json({ error: "Content is required" }, 400);
+  }
+
+  const contentLengthLimit = await getMemoContentLengthLimit(c.env.DB);
+  if (contentLengthLimit > 0 && (content || "").length > contentLengthLimit) {
+    return c.json({ error: `Memo content exceeds the maximum allowed length of ${contentLengthLimit} bytes.` }, 400);
   }
 
   const uid = generateUid();
@@ -233,6 +252,10 @@ memoRoutes.patch("/:id", authRequired, async (c) => {
   const updateData: Parameters<typeof memoDB.updateMemo>[2] = {};
 
   if (body.content !== undefined) {
+    const contentLengthLimit = await getMemoContentLengthLimit(c.env.DB);
+    if (contentLengthLimit > 0 && body.content.length > contentLengthLimit) {
+      return c.json({ error: `Memo content exceeds the maximum allowed length of ${contentLengthLimit} bytes.` }, 400);
+    }
     updateData.content = body.content;
     const payload = parseMemoPayload(body.content);
     const existingPayload = JSON.parse(memo.payload || "{}");

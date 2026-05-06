@@ -91,3 +91,34 @@ export async function setSystemSetting(
     .bind(name, value, description || "")
     .run();
 }
+
+const INSTANCE_SETTING_PREFIX = "instance/settings/";
+
+export function normalizeInstanceSettingName(name: string): string {
+  if (!name) {
+    return "";
+  }
+  return name.startsWith(INSTANCE_SETTING_PREFIX) ? name : `${INSTANCE_SETTING_PREFIX}${name}`;
+}
+
+export function getInstanceSettingStorageNames(name: string): string[] {
+  const normalizedName = normalizeInstanceSettingName(name);
+  const legacyName = normalizedName.startsWith(INSTANCE_SETTING_PREFIX) ? normalizedName.slice(INSTANCE_SETTING_PREFIX.length) : normalizedName;
+  return legacyName === normalizedName ? [normalizedName] : [normalizedName, legacyName];
+}
+
+export async function getInstanceSetting(
+  db: D1Database,
+  name: string
+): Promise<SystemSettingRow | null> {
+  for (const candidate of getInstanceSettingStorageNames(name)) {
+    const setting = await getSystemSetting(db, candidate);
+    if (setting) {
+      return {
+        ...setting,
+        name: normalizeInstanceSettingName(setting.name),
+      };
+    }
+  }
+  return null;
+}

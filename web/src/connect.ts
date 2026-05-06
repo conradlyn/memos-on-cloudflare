@@ -548,6 +548,7 @@ export const aiServiceClient = {
       formData.append("file", blob, audio.filename || "audio.wav");
     }
     if (audio.contentType) formData.append("contentType", audio.contentType);
+    if (req.language) formData.append("language", req.language);
 
     const data = await apiRequest<any>("POST", "/api/v1/ai/transcribe", formData, { isFormData: true });
     return { text: data.text || "" };
@@ -693,6 +694,7 @@ function normalizeUser(data: any): any {
   return {
     ...data,
     name: data.name || `users/${data.username}`,
+    displayName: data.displayName ?? data.nickname ?? "",
     state: data.rowStatus === "ARCHIVED" ? 2 : 1,
     createTime: isoToTimestamp(data.createTime),
     updateTime: isoToTimestamp(data.updateTime),

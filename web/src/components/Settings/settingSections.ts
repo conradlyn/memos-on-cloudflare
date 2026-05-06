@@ -22,6 +22,7 @@ import NotificationSection from "@/components/Settings/NotificationSection";
 import PreferencesSection from "@/components/Settings/PreferencesSection";
 import ResourceStatsSection from "@/components/Settings/ResourceStatsSection";
 import SSOSection from "@/components/Settings/SSOSection";
+import StorageSection from "@/components/Settings/StorageSection";
 import TagsSection from "@/components/Settings/TagsSection";
 import WebhookSection from "@/components/Settings/WebhookSection";
 import { InstanceSetting_Key } from "@/types/proto/api/v1/instance_service_pb";
@@ -35,6 +36,7 @@ export type SettingSectionKey =
   | "memo"
   | "notification"
   | "sso"
+  | "storage"
   | "tags"
   | "ai"
   | "resource-stats";
@@ -92,6 +94,14 @@ export const SETTINGS_SECTIONS: SettingSectionDefinition[] = [
     labelKey: "setting.memo.label",
     icon: LibraryIcon,
     component: MemoRelatedSettings,
+  },
+  {
+    key: "storage",
+    scope: "admin",
+    labelKey: "setting.storage.label",
+    icon: Settings2Icon,
+    component: StorageSection,
+    preloadSettingKeys: [InstanceSetting_Key.STORAGE],
   },
   {
     key: "tags",

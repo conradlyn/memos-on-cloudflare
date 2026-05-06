@@ -12,12 +12,25 @@ type UserApp = { Bindings: Env; Variables: { user: UserPayload } };
 
 export const userRoutes = new Hono<UserApp>();
 
+const getGeneralSetting = async (db: D1Database) => {
+  const setting = await settingDB.getInstanceSetting(db, "GENERAL");
+  if (!setting) {
+    return {};
+  }
+  try {
+    return JSON.parse(setting.value) || {};
+  } catch {
+    return {};
+  }
+};
+
 function formatUser(user: userDB.UserRow) {
   return {
     name: `users/${user.username}`,
     id: user.id,
     username: user.username,
     role: user.role,
+    displayName: user.nickname,
     nickname: user.nickname,
     email: user.email,
     avatarUrl: user.avatar_url,
@@ -148,17 +161,9 @@ userRoutes.post("/", async (c) => {
   }
 
   // Check if self-registration is allowed
-  const registrationSetting = await c.env.DB.prepare(
-    "SELECT value FROM system_setting WHERE name = 'instance/settings/GENERAL'"
-  ).first<{ value: string }>();
-
-  let disallowRegistration = false;
-  if (registrationSetting) {
-    try {
-      const parsed = JSON.parse(registrationSetting.value);
-      disallowRegistration = parsed.disallowUserRegistration === true;
-    } catch {}
-  }
+  const generalSetting = await getGeneralSetting(c.env.DB);
+  const disallowRegistration = generalSetting.disallowUserRegistration === true;
+  const disallowPasswordAuth = generalSetting.disallowPasswordAuth === true;
 
   // Check auth header
   const authHeader = c.req.header("Authorization");
@@ -173,7 +178,7 @@ userRoutes.post("/", async (c) => {
   }
 
   // Admin can always create users; non-admin can self-register if allowed
-  if (!isAdmin && disallowRegistration) {
+  if (!isAdmin && (disallowRegistration || disallowPasswordAuth)) {
     return c.json({ error: "User registration is disabled" }, 403);
   }
 
@@ -212,14 +217,32 @@ userRoutes.patch("/:username", authRequired, async (c) => {
   const body = await c.req.json();
   const updateData: Parameters<typeof userDB.updateUser>[2] = {};
 
-  if (body.nickname !== undefined) updateData.nickname = body.nickname;
+  const generalSetting = await getGeneralSetting(c.env.DB);
+
+  if (body.nickname !== undefined || body.displayName !== undefined) {
+    if (user.id === currentUser.id && currentUser.role !== "ADMIN" && generalSetting.disallowChangeNickname === true) {
+      return c.json({ error: "Changing nickname is disabled" }, 403);
+    }
+    updateData.nickname = body.nickname ?? body.displayName;
+  }
   if (body.email !== undefined) updateData.email = body.email;
   if (body.avatarUrl !== undefined) updateData.avatar_url = body.avatarUrl;
   if (body.description !== undefined) updateData.description = body.description;
   if (body.password) updateData.password_hash = await hashPassword(body.password);
   if (body.role && currentUser.role === "ADMIN") updateData.role = body.role;
   if (body.rowStatus !== undefined) updateData.row_status = body.rowStatus;
-  if (body.username && currentUser.role === "ADMIN") updateData.username = body.username;
+  if (body.username !== undefined) {
+    if (currentUser.role === "ADMIN") {
+      updateData.username = body.username;
+    } else if (user.id === currentUser.id) {
+      if (generalSetting.disallowChangeUsername === true) {
+        return c.json({ error: "Changing username is disabled" }, 403);
+      }
+      if (body.username !== user.username) {
+        return c.json({ error: "Changing username requires admin privileges" }, 403);
+      }
+    }
+  }
 
   const updated = await userDB.updateUser(c.env.DB, user.id, updateData);
   if (!updated) return c.json({ error: "Update failed" }, 500);

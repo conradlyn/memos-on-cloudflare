@@ -11,8 +11,24 @@ export const instanceRoutes = new Hono<InstApp>();
 // Get instance profile
 instanceRoutes.get("/profile", async (c) => {
   const userCount = await userDB.countUsers(c.env.DB);
-  const customProfile = await settingDB.getSystemSetting(c.env.DB, "instance_profile");
-  const profile = customProfile ? JSON.parse(customProfile.value) : {};
+  const generalSetting = await settingDB.getInstanceSetting(c.env.DB, "GENERAL");
+  let profile = {};
+  if (generalSetting) {
+    try {
+      profile = JSON.parse(generalSetting.value)?.customProfile || {};
+    } catch {
+      profile = {};
+    }
+  } else {
+    const legacyCustomProfile = await settingDB.getSystemSetting(c.env.DB, "instance_profile");
+    if (legacyCustomProfile) {
+      try {
+        profile = JSON.parse(legacyCustomProfile.value);
+      } catch {
+        profile = {};
+      }
+    }
+  }
 
   let admin = undefined;
   if (userCount > 0) {
@@ -40,12 +56,17 @@ instanceRoutes.get("/profile", async (c) => {
 // Get instance setting
 instanceRoutes.get("/settings/*", async (c) => {
   const fullPath = c.req.path;
-  const name = fullPath.replace("/api/v1/instance/settings/", "");
+  const name = settingDB.normalizeInstanceSettingName(fullPath.replace("/api/v1/instance/settings/", ""));
   if (!name) {
     const settings = await settingDB.listSystemSettings(c.env.DB);
-    return c.json({ settings });
+    return c.json({
+      settings: settings.map((setting) => ({
+        ...setting,
+        name: settingDB.normalizeInstanceSettingName(setting.name),
+      })),
+    });
   }
-  const setting = await settingDB.getSystemSetting(c.env.DB, name);
+  const setting = await settingDB.getInstanceSetting(c.env.DB, name);
   if (!setting) {
     return c.json({ name, value: "{}" });
   }
@@ -55,7 +76,12 @@ instanceRoutes.get("/settings/*", async (c) => {
 // List instance settings
 instanceRoutes.get("/settings", async (c) => {
   const settings = await settingDB.listSystemSettings(c.env.DB);
-  return c.json({ settings });
+  return c.json({
+    settings: settings.map((setting) => ({
+      ...setting,
+      name: settingDB.normalizeInstanceSettingName(setting.name),
+    })),
+  });
 });
 
 // Test email setting via Resend (admin only)
@@ -72,7 +98,7 @@ instanceRoutes.post("/settings/notification\\:testEmail", authRequired, async (c
   let fromName = body.email?.fromName;
 
   if (!apiKey || !fromEmail) {
-    const setting = await settingDB.getSystemSetting(c.env.DB, "NOTIFICATION");
+    const setting = await settingDB.getInstanceSetting(c.env.DB, "NOTIFICATION");
     if (setting) {
       const parsed = JSON.parse(setting.value);
       const email = parsed.email || {};
@@ -123,8 +149,58 @@ instanceRoutes.patch("/settings/*", authRequired, async (c) => {
   }
 
   const fullPath = c.req.path;
-  const name = fullPath.replace("/api/v1/instance/settings/", "");
+  const name = settingDB.normalizeInstanceSettingName(fullPath.replace("/api/v1/instance/settings/", ""));
   const body = await c.req.json<{ value: string; description?: string }>();
   await settingDB.setSystemSetting(c.env.DB, name, body.value, body.description);
   return c.json({ name, value: body.value });
+});
+
+instanceRoutes.get("/stats", authRequired, async (c) => {
+  const currentUser = c.get("user");
+  if (currentUser.role !== "ADMIN") {
+    return c.json({ error: "Admin only" }, 403);
+  }
+
+  const pageSize = 1000;
+  let offset = 0;
+  let localStorageBytes = 0;
+
+  while (true) {
+    const { results } = await c.env.DB.prepare("SELECT size FROM attachment LIMIT ? OFFSET ?").bind(pageSize, offset).all<{ size: number }>();
+    if (!results.length) {
+      break;
+    }
+    for (const row of results) {
+      localStorageBytes += row.size || 0;
+    }
+    if (results.length < pageSize) {
+      break;
+    }
+    offset += pageSize;
+  }
+
+  let databaseSize = -1;
+  try {
+    const pageCountRow = await c.env.DB.prepare("PRAGMA page_count").first<{ page_count?: number; pageCount?: number }>();
+    const pageSizeRow = await c.env.DB.prepare("PRAGMA page_size").first<{ page_size?: number; pageSize?: number }>();
+    const pageCount = pageCountRow?.page_count ?? pageCountRow?.pageCount ?? 0;
+    const pragmaPageSize = pageSizeRow?.page_size ?? pageSizeRow?.pageSize ?? 0;
+    if (pageCount > 0 && pragmaPageSize > 0) {
+      databaseSize = pageCount * pragmaPageSize;
+    }
+  } catch {
+    databaseSize = -1;
+  }
+
+  return c.json({
+    database: {
+      driver: "cloudflare-d1",
+      sizeBytes: databaseSize,
+    },
+    localStorageBytes,
+    generatedTime: {
+      seconds: Math.floor(Date.now() / 1000),
+      nanos: 0,
+    },
+  });
 });

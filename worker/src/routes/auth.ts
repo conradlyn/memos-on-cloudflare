@@ -5,10 +5,24 @@ import { createAccessToken, createRefreshToken, verifyRefreshToken } from "../au
 import { hashPassword, verifyPassword } from "../auth/password";
 import { authRequired } from "../middleware/auth";
 import { findUserByUsername, findUserById, createUser, countUsers } from "../db/user";
+import * as settingDB from "../db/setting";
 
 type AuthApp = { Bindings: Env; Variables: { user: UserPayload } };
 
 export const authRoutes = new Hono<AuthApp>();
+
+const getGeneralSetting = async (db: D1Database) => {
+  const setting = await settingDB.getInstanceSetting(db, "GENERAL");
+  if (!setting) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(setting.value) || {};
+  } catch {
+    return {};
+  }
+};
 
 authRoutes.post("/signin", async (c) => {
   const body = await c.req.json();
@@ -27,6 +41,11 @@ authRoutes.post("/signin", async (c) => {
 
   if (!username || !password) {
     return c.json({ error: "Username and password required" }, 400);
+  }
+
+  const generalSetting = await getGeneralSetting(c.env.DB);
+  if (generalSetting.disallowPasswordAuth) {
+    return c.json({ error: "Password authentication is disabled" }, 403);
   }
 
   const user = await findUserByUsername(c.env.DB, username);
@@ -98,6 +117,13 @@ authRoutes.post("/signup", async (c) => {
 
   const userCount = await countUsers(c.env.DB);
   const role = userCount === 0 ? "ADMIN" : "USER";
+
+  if (userCount > 0) {
+    const generalSetting = await getGeneralSetting(c.env.DB);
+    if (generalSetting.disallowUserRegistration || generalSetting.disallowPasswordAuth) {
+      return c.json({ error: "User registration is disabled" }, 403);
+    }
+  }
 
   const passwordHash = await hashPassword(password);
   const user = await createUser(c.env.DB, { username, passwordHash, role });

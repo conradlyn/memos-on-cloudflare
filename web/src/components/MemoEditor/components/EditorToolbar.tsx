@@ -1,5 +1,6 @@
 import type { FC } from "react";
 import { Button } from "@/components/ui/button";
+import { useInstance } from "@/contexts/InstanceContext";
 import { useTranslate } from "@/utils/i18n";
 import { validationService } from "../services";
 import { useEditorContext } from "../state";
@@ -10,7 +11,8 @@ import type { EditorToolbarProps } from "../types";
 export const EditorToolbar: FC<EditorToolbarProps> = ({ onSave, onCancel, memoName, onAudioRecorderClick }) => {
   const t = useTranslate();
   const { state, actions, dispatch } = useEditorContext();
-  const { valid } = validationService.canSave(state);
+  const { memoRelatedSetting } = useInstance();
+  const { valid } = validationService.canSave(state, { contentLengthLimit: memoRelatedSetting.contentLengthLimit });
 
   const isSaving = state.ui.isLoading.saving;
 

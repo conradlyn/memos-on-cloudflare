@@ -51,7 +51,7 @@ const MemoEditorImpl: React.FC<MemoEditorProps> = ({
   const editorRef = useRef<EditorRefActions>(null);
   const { state, actions, dispatch } = useEditorContext();
   const { userGeneralSetting } = useAuth();
-  const { aiSetting, fetchSetting } = useInstance();
+  const { aiSetting, memoRelatedSetting, fetchSetting } = useInstance();
   const [isAudioRecorderOpen, setIsAudioRecorderOpen] = useState(false);
   const [isTranscribingAudio, setIsTranscribingAudio] = useState(false);
 
@@ -134,7 +134,7 @@ const MemoEditorImpl: React.FC<MemoEditorProps> = ({
       }
 
       try {
-        const text = (await transcriptionService.transcribeFile(localFile.file)).trim();
+        const text = (await transcriptionService.transcribeFile(localFile.file, aiSetting.transcription?.language)).trim();
         if (!text) {
           dispatch(actions.addLocalFile(localFile));
           toast.error(t("editor.audio-recorder.transcribe-empty"));
@@ -235,7 +235,9 @@ const MemoEditorImpl: React.FC<MemoEditorProps> = ({
 
   async function handleSave() {
     // Validate before saving
-    const { valid, reason } = validationService.canSave(state);
+    const { valid, reason } = validationService.canSave(state, {
+      contentLengthLimit: memoRelatedSetting.contentLengthLimit,
+    });
     if (!valid) {
       toast.error(reason || "Cannot save");
       return;

@@ -36,6 +36,7 @@ function UpdateAccountDialog({ open, onOpenChange, onSuccess }: Props) {
   const { setCurrentUser } = useAuth();
   const { generalSetting: instanceGeneralSetting } = useInstance();
   const { mutateAsync: updateUser } = useUpdateUser();
+  const canEditUsername = currentUser?.role === 2;
   const [state, setState] = useState<State>({
     avatarUrl: currentUser?.avatarUrl ?? "",
     username: currentUser?.username ?? "",
@@ -115,11 +116,11 @@ function UpdateAccountDialog({ open, onOpenChange, onSuccess }: Props) {
 
     try {
       const updateMask = [];
-      if (!isEqual(currentUser?.username, state.username)) {
+      if (canEditUsername && !isEqual(currentUser?.username, state.username)) {
         updateMask.push("username");
       }
       if (!isEqual(currentUser?.displayName, state.displayName)) {
-        updateMask.push("display_name");
+        updateMask.push("nickname");
       }
       if (!isEqual(currentUser?.email, state.email)) {
         updateMask.push("email");
@@ -133,8 +134,8 @@ function UpdateAccountDialog({ open, onOpenChange, onSuccess }: Props) {
       const updatedUser = await updateUser({
         user: {
           name: currentUser?.name,
-          username: state.username,
-          displayName: state.displayName,
+          ...(canEditUsername ? { username: state.username } : {}),
+          nickname: state.displayName,
           email: state.email,
           avatarUrl: state.avatarUrl,
           description: state.description,
@@ -185,7 +186,7 @@ function UpdateAccountDialog({ open, onOpenChange, onSuccess }: Props) {
               id="username"
               value={state.username}
               onChange={handleUsernameChanged}
-              disabled={instanceGeneralSetting.disallowChangeUsername}
+              disabled={!canEditUsername || instanceGeneralSetting.disallowChangeUsername}
             />
           </div>
           <div className="grid gap-2">

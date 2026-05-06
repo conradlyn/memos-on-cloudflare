@@ -6,7 +6,7 @@ export interface ValidationResult {
 }
 
 export const validationService = {
-  canSave(state: EditorState): ValidationResult {
+  canSave(state: EditorState, options?: { contentLengthLimit?: number }): ValidationResult {
     // Cannot save while loading initial content
     if (state.ui.isLoading.loading) {
       return { valid: false, reason: "Loading memo content" };
@@ -30,6 +30,11 @@ export const validationService = {
     // Cannot save while already saving
     if (state.ui.isLoading.saving) {
       return { valid: false, reason: "Save in progress" };
+    }
+
+    const contentLengthLimit = options?.contentLengthLimit ?? 0;
+    if (contentLengthLimit > 0 && state.content.length > contentLengthLimit) {
+      return { valid: false, reason: `Memo content exceeds the maximum allowed length of ${contentLengthLimit} bytes.` };
     }
 
     return { valid: true };
