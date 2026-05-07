@@ -475,18 +475,67 @@ userRoutes.get("/:username/notifications", authRequired, async (c) => {
 
   const { results } = await c.env.DB.prepare(
     "SELECT * FROM inbox WHERE receiver_id = ? ORDER BY created_ts DESC"
-  ).bind(user.id).all();
+  ).bind(user.id).all<{ id: number; created_ts: number; sender_id: number; receiver_id: number; status: string; message: string }>();
 
-  return c.json({ notifications: results });
+  const senderIds = [...new Set((results || []).map((r) => r.sender_id))];
+  const senderMap = new Map<number, { username: string; nickname: string; avatar_url: string }>();
+  for (const id of senderIds) {
+    const sender = await c.env.DB.prepare("SELECT username, nickname, avatar_url FROM user WHERE id = ?")
+      .bind(id).first<{ username: string; nickname: string; avatar_url: string }>();
+    if (sender) senderMap.set(id, sender);
+  }
+
+  const notifications = (results || []).map((row) => {
+    const msg = JSON.parse(row.message || "{}");
+    const sender = senderMap.get(row.sender_id);
+    const statusMap: Record<string, number> = { UNREAD: 1, ARCHIVED: 2 };
+    const typeMap: Record<string, number> = { MEMO_COMMENT: 1, MEMO_MENTION: 2 };
+
+    return {
+      name: `users/${username}/notifications/${row.id}`,
+      sender: sender ? `users/${sender.username}` : "",
+      senderUser: sender ? {
+        name: `users/${sender.username}`,
+        username: sender.username,
+        displayName: sender.nickname || sender.username,
+        avatarUrl: sender.avatar_url || "",
+      } : undefined,
+      status: statusMap[row.status] || 0,
+      createTime: { seconds: row.created_ts, nanos: 0 },
+      type: typeMap[msg.type] || 0,
+      payload: msg.type === "MEMO_COMMENT" ? {
+        case: "memoComment",
+        value: {
+          memo: msg.memo || "",
+          relatedMemo: msg.relatedMemo || "",
+          memoSnippet: msg.memoSnippet || "",
+          relatedMemoSnippet: msg.relatedMemoSnippet || "",
+        },
+      } : msg.type === "MEMO_MENTION" ? {
+        case: "memoMention",
+        value: {
+          memo: msg.memo || "",
+          relatedMemo: msg.relatedMemo || "",
+          memoSnippet: msg.memoSnippet || "",
+          relatedMemoSnippet: msg.relatedMemoSnippet || "",
+        },
+      } : { case: undefined },
+    };
+  });
+
+  return c.json({ notifications });
 });
 
 userRoutes.patch("/:username/notifications/:notifId", authRequired, async (c) => {
   const notifId = Number(c.req.param("notifId"));
   const currentUser = c.get("user");
-  const body = await c.req.json<{ status: string }>();
+  const body = await c.req.json<{ status: string | number }>();
+
+  const statusMap: Record<number, string> = { 1: "UNREAD", 2: "ARCHIVED" };
+  const status = typeof body.status === "number" ? (statusMap[body.status] || "UNREAD") : body.status;
 
   await c.env.DB.prepare("UPDATE inbox SET status = ? WHERE id = ? AND receiver_id = ?")
-    .bind(body.status, notifId, currentUser.id).run();
+    .bind(status, notifId, currentUser.id).run();
 
   return c.json({});
 });

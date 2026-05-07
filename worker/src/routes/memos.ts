@@ -437,6 +437,19 @@ memoRoutes.post("/:id/comments", authRequired, async (c) => {
     type: "COMMENT",
   });
 
+  if (parentMemo.creator_id !== user.id) {
+    const message = JSON.stringify({
+      type: "MEMO_COMMENT",
+      memo: `memos/${comment.id}`,
+      relatedMemo: `memos/${parentMemo.id}`,
+      memoSnippet: comment.content.slice(0, 150),
+      relatedMemoSnippet: parentMemo.content.slice(0, 150),
+    });
+    await c.env.DB.prepare(
+      "INSERT INTO inbox (sender_id, receiver_id, status, message) VALUES (?, ?, ?, ?)"
+    ).bind(user.id, parentMemo.creator_id, "UNREAD", message).run();
+  }
+
   return c.json(await enrichMemo(c.env.DB, comment, user.username), 201);
 });
 

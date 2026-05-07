@@ -34,7 +34,7 @@ export const useMemoViewContext = (): MemoViewContextValue => {
 };
 
 export const computeCommentAmount = (memo: Memo): number =>
-  memo.relations.filter((r) => r.type === MemoRelation_Type.COMMENT && r.relatedMemo?.name === memo.name).length;
+  memo.relations.filter((r) => r.type === MemoRelation_Type.COMMENT && r.memo?.name === memo.name).length;
 
 export const useMemoViewDerived = () => {
   const { memo, isArchived, readonly } = useMemoViewContext();
