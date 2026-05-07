@@ -78,6 +78,17 @@ npm run deploy
 
 部署完成后，访问 Workers 分配的域名，首次访问会进入管理员注册页面。
 
+## GitHub Actions 自动部署
+
+推送到 `main` 分支会自动触发部署。需要在 GitHub 仓库 Settings → Secrets and variables → Actions 中添加：
+
+| Secret | 说明 |
+|--------|------|
+| `CLOUDFLARE_API_TOKEN` | Cloudflare API Token（需要 Workers Scripts:Edit、D1:Edit、R2:Edit 权限） |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare Account ID（在 Dashboard 右侧栏可找到） |
+
+工作流会自动完成：安装依赖 → 构建前端 → 执行数据库迁移 → 部署 Worker。
+
 ## 本地开发
 
 需要两个终端窗口：
