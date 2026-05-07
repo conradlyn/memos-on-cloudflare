@@ -3,6 +3,7 @@ import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import type { Env, UserPayload } from "../types";
 import { createAccessToken, createRefreshToken, verifyRefreshToken } from "../auth/jwt";
 import { hashPassword, verifyPassword } from "../auth/password";
+import { exchangeOAuthCode } from "../auth/oauth";
 import { authRequired } from "../middleware/auth";
 import { findUserByUsername, findUserById, createUser, countUsers } from "../db/user";
 import * as settingDB from "../db/setting";
@@ -28,46 +29,101 @@ const getGeneralSetting = async (db: D1Database) => {
 authRoutes.post("/signin", async (c) => {
   const body = await c.req.json();
 
-  // Support both flat format and proto-style credentials format
-  let username: string;
-  let password: string;
+  let user: Awaited<ReturnType<typeof findUserByUsername>>;
 
-  if (body.credentials?.value) {
-    username = body.credentials.value.username;
-    password = body.credentials.value.password;
+  if (body.credentials?.case === "ssoCredentials") {
+    const { idpName, code, redirectUri, codeVerifier } = body.credentials.value;
+    const idpUid = (idpName || "").replace("identityProviders/", "");
+    if (!idpUid || !code) {
+      return c.json({ error: "Missing IDP name or authorization code" }, 400);
+    }
+
+    const oauthUser = await exchangeOAuthCode(c.env.DB, idpUid, code, redirectUri, codeVerifier);
+
+    const identity = await c.env.DB.prepare(
+      "SELECT * FROM user_identity WHERE provider = ? AND extern_uid = ?"
+    ).bind(idpUid, oauthUser.identifier).first<{ user_id: number }>();
+
+    if (identity) {
+      user = await findUserById(c.env.DB, identity.user_id);
+    } else {
+      let username = sanitizeUsername(oauthUser.identifier);
+      const existing = await findUserByUsername(c.env.DB, username);
+      if (existing) {
+        username = username + "_" + crypto.randomUUID().slice(0, 6);
+      }
+
+      const userCount = await countUsers(c.env.DB);
+      const role = userCount === 0 ? "ADMIN" : "USER";
+      const randomPassword = await hashPassword(crypto.randomUUID());
+
+      user = await createUser(c.env.DB, { username, passwordHash: randomPassword, role });
+
+      if (oauthUser.email || oauthUser.displayName || oauthUser.avatarUrl) {
+        const updates: string[] = [];
+        const params: string[] = [];
+        if (oauthUser.email) { updates.push("email = ?"); params.push(oauthUser.email); }
+        if (oauthUser.displayName) { updates.push("nickname = ?"); params.push(oauthUser.displayName); }
+        if (oauthUser.avatarUrl) { updates.push("avatar_url = ?"); params.push(oauthUser.avatarUrl); }
+        if (updates.length > 0) {
+          await c.env.DB.prepare(`UPDATE user SET ${updates.join(", ")} WHERE id = ?`).bind(...params, user!.id).run();
+          user = await findUserById(c.env.DB, user!.id);
+        }
+      }
+
+      await c.env.DB.prepare(
+        "INSERT INTO user_identity (user_id, provider, extern_uid) VALUES (?, ?, ?)"
+      ).bind(user!.id, idpUid, oauthUser.identifier).run();
+    }
+
+    if (!user) {
+      return c.json({ error: "Failed to find or create user" }, 500);
+    }
   } else {
-    username = body.username;
-    password = body.password;
+    let username: string;
+    let password: string;
+
+    if (body.credentials?.value) {
+      username = body.credentials.value.username;
+      password = body.credentials.value.password;
+    } else {
+      username = body.username;
+      password = body.password;
+    }
+
+    if (!username || !password) {
+      return c.json({ error: "Username and password required" }, 400);
+    }
+
+    const generalSetting = await getGeneralSetting(c.env.DB);
+    if (generalSetting.disallowPasswordAuth) {
+      return c.json(createErrorBody("Password authentication is disabled", { errorKey: "message.password-auth-disabled" }), 403);
+    }
+
+    user = await findUserByUsername(c.env.DB, username);
+    if (!user) {
+      return c.json({ error: "Invalid credentials" }, 401);
+    }
+
+    if (user.row_status !== "NORMAL") {
+      return c.json({ error: "User is archived" }, 403);
+    }
+
+    const valid = await verifyPassword(password, user.password_hash);
+    if (!valid) {
+      return c.json({ error: "Invalid credentials" }, 401);
+    }
   }
 
-  if (!username || !password) {
-    return c.json({ error: "Username and password required" }, 400);
-  }
-
-  const generalSetting = await getGeneralSetting(c.env.DB);
-  if (generalSetting.disallowPasswordAuth) {
-    return c.json(createErrorBody("Password authentication is disabled", { errorKey: "message.password-auth-disabled" }), 403);
-  }
-
-  const user = await findUserByUsername(c.env.DB, username);
-  if (!user) {
-    return c.json({ error: "Invalid credentials" }, 401);
-  }
-
-  if (user.row_status !== "NORMAL") {
+  if (user!.row_status !== "NORMAL") {
     return c.json({ error: "User is archived" }, 403);
   }
 
-  const valid = await verifyPassword(password, user.password_hash);
-  if (!valid) {
-    return c.json({ error: "Invalid credentials" }, 401);
-  }
-
   const userPayload: UserPayload = {
-    id: user.id,
-    username: user.username,
-    role: user.role,
-    status: user.row_status,
+    id: user!.id,
+    username: user!.username,
+    role: user!.role,
+    status: user!.row_status,
   };
 
   const { token: accessToken, expiresAt } = await createAccessToken(userPayload, c.env.JWT_SECRET);
@@ -86,18 +142,22 @@ authRoutes.post("/signin", async (c) => {
     accessToken,
     expiresAt,
     user: {
-      id: user.id,
-      username: user.username,
-      role: user.role,
-      nickname: user.nickname,
-      email: user.email,
-      avatarUrl: user.avatar_url,
-      description: user.description,
-      createTime: new Date(user.created_ts * 1000).toISOString(),
-      updateTime: new Date(user.updated_ts * 1000).toISOString(),
+      id: user!.id,
+      username: user!.username,
+      role: user!.role,
+      nickname: user!.nickname,
+      email: user!.email,
+      avatarUrl: user!.avatar_url,
+      description: user!.description,
+      createTime: new Date(user!.created_ts * 1000).toISOString(),
+      updateTime: new Date(user!.updated_ts * 1000).toISOString(),
     },
   });
 });
+
+function sanitizeUsername(identifier: string): string {
+  return identifier.toLowerCase().replace(/[^a-z0-9_-]/g, "_").slice(0, 32) || "user";
+}
 
 authRoutes.post("/signup", async (c) => {
   const body = await c.req.json<{ username: string; password: string }>();

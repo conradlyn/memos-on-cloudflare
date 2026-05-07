@@ -7,6 +7,7 @@ import * as memoDB from "../db/memo";
 import * as webhookDB from "../db/webhook";
 import { hashPassword } from "../auth/password";
 import { generatePAT, hashPAT } from "../auth/pat";
+import { exchangeOAuthCode } from "../auth/oauth";
 import { createErrorBody } from "../error";
 
 type UserApp = { Bindings: Env; Variables: { user: UserPayload } };
@@ -400,9 +401,15 @@ userRoutes.get("/:username/linkedIdentities", authRequired, async (c) => {
 
   const { results } = await c.env.DB.prepare(
     "SELECT * FROM user_identity WHERE user_id = ?"
-  ).bind(user.id).all();
+  ).bind(user.id).all<{ id: number; user_id: number; provider: string; extern_uid: string }>();
 
-  return c.json({ linkedIdentities: results || [] });
+  const linkedIdentities = (results || []).map((row) => ({
+    name: `users/${username}/linkedIdentities/${row.id}`,
+    idpName: `identityProviders/${row.provider}`,
+    externUid: row.extern_uid,
+  }));
+
+  return c.json({ linkedIdentities });
 });
 
 userRoutes.post("/:username/linkedIdentities", authRequired, async (c) => {
@@ -414,12 +421,30 @@ userRoutes.post("/:username/linkedIdentities", authRequired, async (c) => {
     return c.json({ error: "Permission denied" }, 403);
   }
 
-  const body = await c.req.json();
-  const result = await c.env.DB.prepare(
-    "INSERT INTO user_identity (user_id, provider, identifier, profile) VALUES (?, ?, ?, ?) RETURNING *"
-  ).bind(user.id, body.provider || "", body.identifier || "", JSON.stringify(body.profile || {})).first();
+  const body = await c.req.json<{ idpName?: string; code?: string; redirectUri?: string; codeVerifier?: string }>();
+  const idpUid = (body.idpName || "").replace("identityProviders/", "");
+  if (!idpUid || !body.code) {
+    return c.json({ error: "Missing IDP name or authorization code" }, 400);
+  }
 
-  return c.json(result, 201);
+  const oauthUser = await exchangeOAuthCode(c.env.DB, idpUid, body.code, body.redirectUri || "", body.codeVerifier);
+
+  const existing = await c.env.DB.prepare(
+    "SELECT id FROM user_identity WHERE provider = ? AND extern_uid = ?"
+  ).bind(idpUid, oauthUser.identifier).first<{ id: number }>();
+  if (existing) {
+    return c.json({ error: "This identity is already linked to another account" }, 409);
+  }
+
+  const result = await c.env.DB.prepare(
+    "INSERT INTO user_identity (user_id, provider, extern_uid) VALUES (?, ?, ?) RETURNING *"
+  ).bind(user.id, idpUid, oauthUser.identifier).first<{ id: number; provider: string; extern_uid: string }>();
+
+  return c.json({
+    name: `users/${username}/linkedIdentities/${result!.id}`,
+    idpName: `identityProviders/${result!.provider}`,
+    externUid: result!.extern_uid,
+  }, 201);
 });
 
 userRoutes.delete("/:username/linkedIdentities/:identityId", authRequired, async (c) => {

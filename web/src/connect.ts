@@ -190,16 +190,21 @@ export const authServiceClient = {
   },
 
   async signIn(req: { username?: string; password?: string; credentials?: any; neverExpire?: boolean }) {
-    let username = req.username;
-    let password = req.password;
-    if (req.credentials?.value) {
-      username = req.credentials.value.username;
-      password = req.credentials.value.password;
+    let body: any;
+
+    if (req.credentials?.case === "ssoCredentials") {
+      body = { credentials: req.credentials };
+    } else {
+      let username = req.username;
+      let password = req.password;
+      if (req.credentials?.value) {
+        username = req.credentials.value.username;
+        password = req.credentials.value.password;
+      }
+      body = { username, password };
     }
-    const data = await apiRequest<any>("POST", "/api/v1/auth/signin", {
-      username,
-      password,
-    });
+
+    const data = await apiRequest<any>("POST", "/api/v1/auth/signin", body);
     return {
       accessToken: data.accessToken,
       accessTokenExpiresAt: data.expiresAt ? { seconds: data.expiresAt, nanos: 0 } : undefined,
