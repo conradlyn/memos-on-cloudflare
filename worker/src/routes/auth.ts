@@ -39,7 +39,25 @@ authRoutes.post("/signin", async (c) => {
       return c.json({ error: "Missing IDP name or authorization code" }, 400);
     }
 
-    const oauthUser = await exchangeOAuthCode(c.env.DB, idpUid, code, redirectUri, codeVerifier);
+    let oauthUser;
+    try {
+      oauthUser = await exchangeOAuthCode(c.env.DB, idpUid, code, redirectUri, codeVerifier);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to authenticate with identity provider";
+      console.error("Failed to exchange OAuth code during sign-in:", error);
+      const status =
+        message.includes("Identity provider not found") ||
+        message.includes("configuration is incomplete") ||
+        message.includes("Token exchange failed") ||
+        message.includes("OAuth error:") ||
+        message.includes("No access_token") ||
+        message.includes("User info request failed") ||
+        message.includes("Could not extract user identifier") ||
+        message.includes("does not match the allowed pattern")
+          ? 400
+          : 500;
+      return c.json(createErrorBody(message), status);
+    }
 
     const identity = await c.env.DB.prepare(
       "SELECT * FROM user_identity WHERE provider = ? AND extern_uid = ?"
