@@ -12,6 +12,7 @@ import { shortcutRoutes } from "./routes/shortcuts";
 import { idpRoutes } from "./routes/idp";
 import { aiRoutes } from "./routes/ai";
 import { sseRoutes } from "./routes/sse";
+import { rssRoutes } from "./routes/rss";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -28,5 +29,6 @@ app.route("/api/v1/idps", idpRoutes);
 app.route("/api/v1/ai", aiRoutes);
 app.route("/api/v1/sse", sseRoutes);
 app.route("/file", fileRoutes);
+app.route("/u", rssRoutes);
 
 export default app;
