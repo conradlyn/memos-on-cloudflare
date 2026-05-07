@@ -77,11 +77,11 @@ export const useMemoFilters = (options: UseMemoFiltersOptions = {}): string | un
       } else if (filter.factor === "property.hasCode") {
         conditions.push(`has_code`);
       } else if (filter.factor === "displayTime") {
-        const filterDate = new Date(filter.value);
-        const filterUtcTimestamp = filterDate.getTime() + filterDate.getTimezoneOffset() * 60 * 1000;
-        const timestampAfter = filterUtcTimestamp / 1000;
+        const [year, month, day] = filter.value.split("-").map(Number);
+        const startOfDay = new Date(year, month - 1, day).getTime() / 1000;
+        const endOfDay = startOfDay + 60 * 60 * 24;
 
-        conditions.push(`created_ts >= ${timestampAfter} && created_ts < ${timestampAfter + 60 * 60 * 24}`);
+        conditions.push(`created_ts >= ${startOfDay} && created_ts < ${endOfDay}`);
       }
     }
 

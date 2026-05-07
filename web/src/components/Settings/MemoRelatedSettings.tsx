@@ -2,7 +2,6 @@ import { create } from "@bufbuild/protobuf";
 import { isEqual, uniq } from "lodash-es";
 import { CheckIcon, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { toast } from "react-hot-toast";
 import { DEFAULT_MEMO_REACTIONS } from "@/helpers/default-reactions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

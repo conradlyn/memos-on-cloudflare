@@ -130,7 +130,7 @@ export function InstanceProvider({ children }: { children: ReactNode }) {
 
       setState({
         profile,
-        settings: [generalSetting, memoRelatedSettingResponse, tagsSettingResponse],
+        settings: [generalSetting, memoRelatedSettingResponse, tagsSettingResponse] as InstanceSetting[],
         isInitialized: true,
         isLoading: false,
         profileLoaded: true,
@@ -155,7 +155,7 @@ export function InstanceProvider({ children }: { children: ReactNode }) {
       const setting = await instanceServiceClient.getInstanceSetting({ name });
       setState((prev) => ({
         ...prev,
-        settings: [...prev.settings.filter((s) => s.name !== setting.name), setting],
+        settings: [...prev.settings.filter((s) => s.name !== setting.name), setting] as InstanceSetting[],
       }));
     } catch (error) {
       fetchedSettingsRef.current.delete(name);

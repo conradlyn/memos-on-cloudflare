@@ -18,7 +18,7 @@ import SettingTable from "./SettingTable";
 const listAccessTokens = async (parent: string) => {
   const { personalAccessTokens } = await userServiceClient.listPersonalAccessTokens({ parent });
   return personalAccessTokens.sort(
-    (a, b) =>
+    (a: PersonalAccessToken, b: PersonalAccessToken) =>
       ((b.createdAt ? timestampDate(b.createdAt) : undefined)?.getTime() ?? 0) -
       ((a.createdAt ? timestampDate(a.createdAt) : undefined)?.getTime() ?? 0),
   );

@@ -112,7 +112,7 @@ const PagedMemoList = (props: Props) => {
     const lastPage = data.pages[data.pages.length - 1];
     if (!lastPage?.memos) return;
 
-    const uniqueCreators = Array.from(new Set(lastPage.memos.map((memo) => memo.creator)));
+    const uniqueCreators = Array.from(new Set(lastPage.memos.map((memo: Memo) => memo.creator))) as string[];
     for (const creator of uniqueCreators) {
       void queryClient.prefetchQuery({
         queryKey: userKeys.detail(creator),

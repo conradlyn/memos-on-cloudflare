@@ -59,7 +59,7 @@ const listUnusedAttachmentNames = async () => {
       }),
     );
 
-    names.push(...response.attachments.map((attachment) => attachment.name));
+    names.push(...response.attachments.map((attachment: { name: string }) => attachment.name));
     pageToken = response.nextPageToken;
   } while (pageToken);
 

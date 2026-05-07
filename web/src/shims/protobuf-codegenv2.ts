@@ -19,7 +19,7 @@ export function extDesc(..._args: any[]): any {
 }
 
 export type GenFile = unknown;
-export type GenMessage<T> = { $type: string };
-export type GenEnum<T> = { $type: string };
-export type GenService = { $type: string };
-export type GenExtension<T, U> = { $type: string };
+export type GenMessage<T> = { $type: string; readonly _t?: T };
+export type GenEnum<T> = { $type: string; readonly _t?: T };
+export type GenService<_T = unknown> = { $type: string };
+export type GenExtension<T = unknown, _U = unknown> = { $type: string; readonly _t?: T };

@@ -2,7 +2,10 @@ name = "cfmemos"
 main = "worker/src/index.ts"
 compatibility_date = "2025-05-01"
 
-assets = { directory = "./web/dist", binding = "ASSETS", not_found_handling = "single-page-application" }
+[assets]
+directory = "./web/dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
 
 [vars]
 INSTANCE_NAME = "cfmemos"

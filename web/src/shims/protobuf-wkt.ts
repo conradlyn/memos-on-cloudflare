@@ -12,7 +12,8 @@ export type FieldMask = {
   paths: string[];
 };
 
-export type EmptySchema = {};
+export const EmptySchema = { $type: "google.protobuf.Empty" };
+export type EmptySchema = typeof EmptySchema;
 export type FieldOptions = {};
 export type MethodOptions = {};
 export type ServiceOptions = {};

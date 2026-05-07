@@ -23,14 +23,6 @@ interface ResendEmailSetting {
   replyTo: string;
 }
 
-const defaultSetting = (): ResendEmailSetting => ({
-  enabled: false,
-  apiKey: "",
-  fromEmail: "",
-  fromName: "",
-  replyTo: "",
-});
-
 const NotificationSection = () => {
   const t = useTranslate();
   const saveInstanceSetting = useInstanceSettingUpdater();

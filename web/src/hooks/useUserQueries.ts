@@ -96,7 +96,7 @@ export function useTagCounts(forCurrentUser = false) {
         const tagCount: Record<string, number> = {};
         for (const userStats of stats) {
           if (userStats.tagCount) {
-            for (const [tag, count] of Object.entries(userStats.tagCount)) {
+            for (const [tag, count] of Object.entries(userStats.tagCount as Record<string, number>)) {
               tagCount[tag] = (tagCount[tag] || 0) + count;
             }
           }

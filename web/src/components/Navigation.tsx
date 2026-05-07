@@ -46,7 +46,7 @@ const Navigation = (props: Props) => {
     title: t("common.attachments"),
     icon: <PaperclipIcon className="w-6 h-auto shrink-0" />,
   };
-  const unreadCount = notifications.filter((n) => n.status === UserNotification_Status.UNREAD).length;
+  const unreadCount = notifications.filter((n: { status: UserNotification_Status }) => n.status === UserNotification_Status.UNREAD).length;
   const inboxNavLink: NavLinkItem = {
     id: "header-inbox",
     path: Routes.INBOX,

@@ -118,7 +118,7 @@ const MemoSharePanel = ({ open, onClose, memoName }: MemoSharePanelProps) => {
               <p className="text-sm text-muted-foreground">{t("memo.share.no-links")}</p>
             ) : (
               <div className="flex flex-col gap-2">
-                {shares.map((share) => (
+                {shares.map((share: MemoShare) => (
                   <ShareLinkRow key={share.name} share={share} memoName={memoName} />
                 ))}
               </div>

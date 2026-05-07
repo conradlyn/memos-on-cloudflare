@@ -57,8 +57,8 @@ export const useFilteredMemoStats = (options: UseFilteredMemoStatsOptions = {}):
         }
       }
       const displayDates = (memosResponse?.memos ?? [])
-        .map((memo) => memoTimestampForBasis(memo, timeBasis))
-        .filter((date): date is Date => date !== undefined)
+        .map((memo: Memo) => memoTimestampForBasis(memo, timeBasis))
+        .filter((date: Date | undefined): date is Date => date !== undefined)
         .map(toDateString);
       activityStats = countBy(displayDates);
     } else if (userName && userStats) {
@@ -81,8 +81,8 @@ export const useFilteredMemoStats = (options: UseFilteredMemoStatsOptions = {}):
       if (sourceArray.length > 0) {
         activityStats = countBy(
           sourceArray
-            .map((ts) => (ts ? timestampDate(ts) : undefined))
-            .filter((date): date is Date => date !== undefined)
+            .map((ts: { seconds?: number | bigint | string } | undefined) => (ts ? timestampDate(ts) : undefined))
+            .filter((date: Date | undefined): date is Date => date !== undefined)
             .map(toDateString),
         );
       }
@@ -92,8 +92,8 @@ export const useFilteredMemoStats = (options: UseFilteredMemoStatsOptions = {}):
     } else if (memosResponse?.memos) {
       // archived/fallback: compute from cached memos
       const displayDates = memosResponse.memos
-        .map((memo) => memoTimestampForBasis(memo, timeBasis))
-        .filter((date): date is Date => date !== undefined)
+        .map((memo: Memo) => memoTimestampForBasis(memo, timeBasis))
+        .filter((date: Date | undefined): date is Date => date !== undefined)
         .map(toDateString);
       activityStats = countBy(displayDates);
       for (const memo of memosResponse.memos) {

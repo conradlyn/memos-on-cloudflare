@@ -13,7 +13,7 @@ export default function TagSuggestions({ editorRef, editorActions }: TagSuggesti
   const { data: tagCount = {} } = useTagCounts(!isExplorePage);
 
   const sortedTags = useMemo(() => {
-    return Object.entries(tagCount)
+    return Object.entries(tagCount as Record<string, number>)
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
       .map(([tag]) => tag);
   }, [tagCount]);

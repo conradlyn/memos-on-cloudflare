@@ -43,7 +43,7 @@ function CreateWebhookDialog({ open, onOpenChange, webhookName, onSuccess }: Pro
           parent: currentUser.name,
         })
         .then((response) => {
-          const webhook = response.webhooks.find((w) => w.name === webhookName);
+          const webhook = response.webhooks.find((w: { name: string; displayName: string; url: string }) => w.name === webhookName);
           if (webhook) {
             setState({
               displayName: webhook.displayName,

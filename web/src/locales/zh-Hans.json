@@ -715,6 +715,24 @@
       "invalid-regex": "无效或不安全的正则表达式模式。",
       "used-count": "{{count}} 条备忘录",
       "using-default-color": "使用默认颜色。"
+    },
+    "resource-stats": {
+      "label": "资源",
+      "title": "资源统计",
+      "description": "此实例的资源使用情况。",
+      "database": {
+        "title": "数据库",
+        "driver": "驱动",
+        "size": "大小"
+      },
+      "local-storage": {
+        "title": "本地存储",
+        "size": "数据目录大小"
+      },
+      "unknown": "未知",
+      "last-updated": "上次更新于 {{ago}}",
+      "refresh": "刷新",
+      "load-error": "加载统计信息失败"
     }
   },
   "tag": {

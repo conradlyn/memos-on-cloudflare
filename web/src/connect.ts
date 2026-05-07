@@ -142,7 +142,7 @@ export const memoServiceClient = {
     await apiRequest<any>("DELETE", `/api/v1/memos/${memoId}/reactions/${reactionId}`);
   },
 
-  async createMemoShare(req: { parent: string; memoShare: any }) {
+  async createMemoShare(req: { parent: string; memoShare?: any }) {
     const id = extractId(req.parent, "memos/");
     const data = await apiRequest<any>("POST", `/api/v1/memos/${id}/shares`, {
       expiresTs: req.memoShare?.expireTime ? Math.floor(new Date(timestampToISO(req.memoShare.expireTime)).getTime() / 1000) : undefined,
@@ -587,7 +587,7 @@ export const shortcutServiceClient = {
     return apiRequest<any>("GET", "/api/v1/shortcuts").catch(() => ({ shortcuts: [] }));
   },
 
-  async createShortcut(req: { shortcut: any }) {
+  async createShortcut(req: { shortcut: any; parent?: string }) {
     return apiRequest<any>("POST", "/api/v1/shortcuts", req.shortcut);
   },
 
@@ -612,7 +612,7 @@ export const identityProviderServiceClient = {
     return apiRequest<any>("GET", "/api/v1/idps").catch(() => ({ identityProviders: [] }));
   },
 
-  async createIdentityProvider(req: { identityProvider: any }) {
+  async createIdentityProvider(req: { identityProvider: any; identityProviderId?: string }) {
     return apiRequest<any>("POST", "/api/v1/idps", req.identityProvider);
   },
 
@@ -661,14 +661,6 @@ function stringToVisibility(s: string): number {
     case "PRIVATE": return 1;
     case "PROTECTED": return 2;
     case "PUBLIC": return 3;
-    default: return 1;
-  }
-}
-
-function stringToState(s: string): number {
-  switch (s) {
-    case "NORMAL": return 1;
-    case "ARCHIVED": return 2;
     default: return 1;
   }
 }

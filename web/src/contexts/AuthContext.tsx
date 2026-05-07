@@ -41,8 +41,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       shortcutServiceClient.listShortcuts({ parent: userName }),
     ]);
 
-    const generalSetting = settings.find((s) => s.value.case === "generalSetting");
-    const webhooksSetting = settings.find((s) => s.value.case === "webhooksSetting");
+    const generalSetting = settings.find((s: { value: { case: string } }) => s.value.case === "generalSetting");
+    const webhooksSetting = settings.find((s: { value: { case: string } }) => s.value.case === "webhooksSetting");
 
     return {
       userGeneralSetting: generalSetting?.value.case === "generalSetting" ? generalSetting.value.value : undefined,

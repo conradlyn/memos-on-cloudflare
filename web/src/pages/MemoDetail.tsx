@@ -74,7 +74,7 @@ const MemoDetail = () => {
   const displayMemo = isShareMode
     ? { ...memo, attachments: withShareAttachmentLinks(memo.attachments as Attachment[], shareToken!) }
     : memo;
-  const mentionResolutionContents = [displayMemo.content, ...comments.map((comment) => comment.content)];
+  const mentionResolutionContents = [displayMemo.content, ...comments.map((comment: { content: string }) => comment.content)];
 
   return (
     <section className="@container w-full max-w-5xl min-h-full flex flex-col justify-start items-center sm:pt-3 md:pt-6 pb-8">

@@ -13,7 +13,7 @@ const MemoCommentListView: React.FC = () => {
   const { data } = useMemoComments(memo.name, { enabled: !isInMemoDetailPage && commentAmount > 0, pageSize: 3 });
   const comments = data?.memos ?? [];
   const displayedComments = comments.slice(0, 3);
-  const { data: commentCreators } = useUsersByNames(displayedComments.map((comment) => comment.creator));
+  const { data: commentCreators } = useUsersByNames(displayedComments.map((comment: any) => comment.creator));
 
   if (isInMemoDetailPage || commentAmount === 0) {
     return null;
@@ -31,7 +31,7 @@ const MemoCommentListView: React.FC = () => {
           <ArrowUpRightIcon className="w-3 h-3" />
         </Link>
       </div>
-      {displayedComments.map((comment) => {
+      {displayedComments.map((comment: any) => {
         const uid = extractMemoIdFromName(comment.name);
         const creator = commentCreators?.get(comment.creator);
         return (

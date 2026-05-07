@@ -560,6 +560,24 @@
       "tag-pattern-hint": "標籤名稱或正規表示式模式（例如 project/.* 符合所有 project/ 標籤）",
       "invalid-regex": "無效或不安全的正規表示式模式。",
       "using-default-color": "使用預設顏色。"
+    },
+    "resource-stats": {
+      "label": "資源",
+      "title": "資源統計",
+      "description": "此實例的資源使用情況。",
+      "database": {
+        "title": "資料庫",
+        "driver": "驅動",
+        "size": "大小"
+      },
+      "local-storage": {
+        "title": "本機儲存",
+        "size": "資料目錄大小"
+      },
+      "unknown": "未知",
+      "last-updated": "上次更新於 {{ago}}",
+      "refresh": "重新整理",
+      "load-error": "載入統計資訊失敗"
     }
   },
   "tag": {

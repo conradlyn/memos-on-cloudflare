@@ -15,9 +15,12 @@ export interface ListMemosOpts {
   creatorId?: number;
   rowStatus?: string;
   visibility?: string;
+  visibilities?: string[];
   pinned?: boolean;
   contentSearch?: string;
   tagSearch?: string;
+  createdTsAfter?: number;
+  createdTsBefore?: number;
   pageSize?: number;
   offset?: number;
   orderBy?: string;
@@ -88,6 +91,11 @@ export async function listMemos(
     conditions.push("visibility = ?");
     params.push(opts.visibility);
   }
+  if (opts.visibilities && opts.visibilities.length > 0) {
+    const placeholders = opts.visibilities.map(() => "?").join(", ");
+    conditions.push(`visibility IN (${placeholders})`);
+    params.push(...opts.visibilities);
+  }
   if (opts.pinned !== undefined) {
     conditions.push("pinned = ?");
     params.push(opts.pinned ? 1 : 0);
@@ -99,6 +107,14 @@ export async function listMemos(
   if (opts.tagSearch) {
     conditions.push("payload LIKE ?");
     params.push(`%${opts.tagSearch}%`);
+  }
+  if (opts.createdTsAfter !== undefined) {
+    conditions.push("created_ts >= ?");
+    params.push(opts.createdTsAfter);
+  }
+  if (opts.createdTsBefore !== undefined) {
+    conditions.push("created_ts < ?");
+    params.push(opts.createdTsBefore);
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";

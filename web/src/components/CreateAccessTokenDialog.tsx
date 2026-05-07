@@ -79,13 +79,13 @@ function CreateAccessTokenDialog({ open, onOpenChange, onSuccess }: Props) {
     try {
       requestState.setLoading();
       const response = await userServiceClient.createPersonalAccessToken({
-        parent: currentUser?.name,
+        parent: currentUser?.name ?? "",
         description: state.description,
         expiresInDays: state.expiration,
       });
 
       requestState.setFinish();
-      onSuccess(response);
+      onSuccess(response as CreatePersonalAccessTokenResponse);
       if (response.token) {
         setCreatedToken(response.token);
       } else {

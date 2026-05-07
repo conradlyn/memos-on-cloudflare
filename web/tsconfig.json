@@ -17,7 +17,12 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@bufbuild/protobuf/codegenv2": ["./src/shims/protobuf-codegenv2.ts"],
+      "@bufbuild/protobuf/wkt": ["./src/shims/protobuf-wkt.ts"],
+      "@bufbuild/protobuf": ["./src/shims/protobuf.ts"],
+      "@connectrpc/connect-web": ["./src/shims/connect-web.ts"],
+      "@connectrpc/connect": ["./src/shims/connect.ts"]
     }
   },
   "include": ["./src"]

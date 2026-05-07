@@ -216,15 +216,24 @@ memoRoutes.get("/", authOptional, async (c) => {
 
     const visMatch = filter.match(/visibility\s*==\s*"?(\w+)"?/);
     if (visMatch) opts.visibility = visMatch[1];
+    const visInMatch = filter.match(/visibility\s+in\s*\[([^\]]+)\]/);
+    if (visInMatch) opts.visibilities = visInMatch[1].match(/\w+/g) || [];
 
-    const contentMatch = filter.match(/content\.contains\("([^"]+)"\)/);
-    if (contentMatch) opts.contentSearch = contentMatch[1];
+    const contentMatch = filter.match(/content\.contains\(("(?:[^"\\]|\\.)*")\)/);
+    if (contentMatch) opts.contentSearch = JSON.parse(contentMatch[1]);
 
-    const tagMatch = filter.match(/tag\s*==\s*"([^"]+)"/);
-    if (tagMatch) opts.tagSearch = tagMatch[1];
+    const tagMatch = filter.match(/tag\s*(?:==\s*"([^"]+)"|in\s*\["([^"]+)"\])/);
+    if (tagMatch) opts.tagSearch = tagMatch[1] || tagMatch[2];
 
     const pinnedMatch = filter.match(/pinned\s*==\s*(true|false)/);
     if (pinnedMatch) opts.pinned = pinnedMatch[1] === "true";
+    else if (/\bpinned\b/.test(filter) && !filter.includes("pinned ==")) opts.pinned = true;
+
+    const createdAfterMatch = filter.match(/created_ts\s*>=\s*(\d+(?:\.\d+)?)/);
+    if (createdAfterMatch) opts.createdTsAfter = Math.floor(Number(createdAfterMatch[1]));
+
+    const createdBeforeMatch = filter.match(/created_ts\s*<\s*(\d+(?:\.\d+)?)/);
+    if (createdBeforeMatch) opts.createdTsBefore = Math.floor(Number(createdBeforeMatch[1]));
   }
 
   // Visibility enforcement
