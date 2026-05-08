@@ -268,3 +268,12 @@ authRoutes.get("/me", authRequired, async (c) => {
 
   return c.json(formatUser(user));
 });
+
+const methodNotAllowed = (c: any) =>
+  c.json({ code: 12, message: "Method Not Allowed", details: [] }, 405);
+
+authRoutes.all("/signin", methodNotAllowed);
+authRoutes.all("/signup", methodNotAllowed);
+authRoutes.all("/signout", methodNotAllowed);
+authRoutes.all("/refresh", methodNotAllowed);
+authRoutes.all("/me", methodNotAllowed);
