@@ -44,6 +44,23 @@ export function formatUser(user: userDB.UserRow) {
   };
 }
 
+function formatPersonalAccessToken(username: string, token: {
+  hash: string;
+  description?: string;
+  createdAt?: string;
+  expiresAt?: string | null;
+  lastUsedAt?: string;
+}) {
+  return {
+    name: `users/${username}/personalAccessTokens/${token.hash}`,
+    description: token.description || "",
+    createdAt: token.createdAt || new Date().toISOString(),
+    expiresAt: token.expiresAt || undefined,
+    lastUsedAt: token.lastUsedAt || undefined,
+    hash: token.hash,
+  };
+}
+
 // List users
 userRoutes.get("/", authOptional, async (c) => {
   const users = await userDB.listUsers(c.env.DB, { rowStatus: "NORMAL" });
@@ -337,7 +354,17 @@ userRoutes.get("/:username/personalAccessTokens", authRequired, async (c) => {
 
   const setting = await settingDB.getUserSetting(c.env.DB, user.id, "personal_access_tokens");
   const tokens = setting ? JSON.parse(setting.value) : [];
-  return c.json({ personalAccessTokens: tokens });
+  return c.json({
+    personalAccessTokens: tokens.map((token: {
+      hash: string;
+      description?: string;
+      createdAt?: string;
+      expiresAt?: string | null;
+      lastUsedAt?: string;
+    }) => formatPersonalAccessToken(username, token)),
+    nextPageToken: "",
+    totalSize: tokens.length,
+  });
 });
 
 userRoutes.post("/:username/personalAccessTokens", authRequired, async (c) => {
@@ -361,16 +388,21 @@ userRoutes.post("/:username/personalAccessTokens", authRequired, async (c) => {
 
   const setting = await settingDB.getUserSetting(c.env.DB, user.id, "personal_access_tokens");
   const tokens = setting ? JSON.parse(setting.value) : [];
-  tokens.push({
+  const tokenRecord = {
     hash,
     description: body.description || "",
     createdAt: new Date().toISOString(),
     expiresAt,
-  });
+  };
+  tokens.push(tokenRecord);
 
   await settingDB.setUserSetting(c.env.DB, user.id, "personal_access_tokens", JSON.stringify(tokens));
 
-  return c.json({ token, description: body.description || "" });
+  return c.json({
+    token,
+    description: body.description || "",
+    personalAccessToken: formatPersonalAccessToken(username, tokenRecord),
+  });
 });
 
 userRoutes.delete("/:username/personalAccessTokens/:tokenHash", authRequired, async (c) => {

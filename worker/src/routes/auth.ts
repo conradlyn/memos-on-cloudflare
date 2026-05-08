@@ -29,6 +29,10 @@ const getGeneralSetting = async (db: D1Database) => {
   }
 };
 
+function toISODateTime(seconds: number): string {
+  return new Date(seconds * 1000).toISOString();
+}
+
 authRoutes.post("/signin", async (c) => {
   const body = await c.req.json();
 
@@ -159,10 +163,15 @@ authRoutes.post("/signin", async (c) => {
     maxAge: 30 * 24 * 60 * 60,
   });
 
+  const formattedUser = formatUser(user! as UserRow);
+
   return c.json({
+    user: formattedUser,
     accessToken,
-    expiresAt,
-    user: formatUser(user! as UserRow),
+    expiresAt: toISODateTime(expiresAt),
+    expiresAtSeconds: expiresAt,
+    accessTokenExpiresAt: toISODateTime(expiresAt),
+    ...formattedUser,
   });
 });
 
@@ -219,10 +228,15 @@ authRoutes.post("/signup", async (c) => {
     maxAge: 30 * 24 * 60 * 60,
   });
 
+  const formattedUser = formatUser(user as UserRow);
+
   return c.json({
+    user: formattedUser,
     accessToken,
-    expiresAt,
-    user: formatUser(user as UserRow),
+    expiresAt: toISODateTime(expiresAt),
+    expiresAtSeconds: expiresAt,
+    accessTokenExpiresAt: toISODateTime(expiresAt),
+    ...formattedUser,
   });
 });
 
@@ -252,7 +266,12 @@ authRoutes.post("/refresh", async (c) => {
     };
 
     const { token: accessToken, expiresAt } = await createAccessToken(userPayload, c.env.JWT_SECRET);
-    return c.json({ accessToken, expiresAt });
+    return c.json({
+      accessToken,
+      expiresAt: toISODateTime(expiresAt),
+      expiresAtSeconds: expiresAt,
+      accessTokenExpiresAt: toISODateTime(expiresAt),
+    });
   } catch {
     deleteCookie(c, "memos_refresh", { path: "/" });
     return c.json({ error: "Invalid refresh token" }, 401);
@@ -266,7 +285,11 @@ authRoutes.get("/me", authRequired, async (c) => {
     return c.json({ error: "User not found" }, 404);
   }
 
-  return c.json(formatUser(user));
+  const formattedUser = formatUser(user);
+  return c.json({
+    user: formattedUser,
+    ...formattedUser,
+  });
 });
 
 const methodNotAllowed = (c: any) =>

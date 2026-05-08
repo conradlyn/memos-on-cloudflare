@@ -13,7 +13,14 @@ async function doRefresh(): Promise<void> {
   if (!resp.ok) throw new Error("Refresh failed");
   const data = await resp.json();
   if (data.accessToken) {
-    const expiresAt = data.expiresAt ? new Date(data.expiresAt * 1000) : undefined;
+    let expiresAt: Date | undefined;
+    if (typeof data.expiresAt === "number") {
+      expiresAt = new Date(data.expiresAt * 1000);
+    } else if (typeof data.expiresAt === "string") {
+      expiresAt = new Date(data.expiresAt);
+    } else if (typeof data.expiresAtSeconds === "number") {
+      expiresAt = new Date(data.expiresAtSeconds * 1000);
+    }
     setAccessToken(data.accessToken, expiresAt);
   }
 }
