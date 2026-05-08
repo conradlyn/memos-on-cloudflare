@@ -16,6 +16,7 @@ rssRoutes.get("/:username/rss.xml", async (c) => {
     creatorId: user.id,
     visibility: "PUBLIC",
     rowStatus: "NORMAL",
+    excludeComments: true,
     pageSize: 50,
     offset: 0,
   });

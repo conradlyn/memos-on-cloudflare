@@ -16,6 +16,7 @@ export interface ListMemosOpts {
   rowStatus?: string;
   visibility?: string;
   visibilities?: string[];
+  excludeComments?: boolean;
   pinned?: boolean;
   contentSearch?: string;
   tagSearch?: string;
@@ -99,6 +100,9 @@ export async function listMemos(
   if (opts.pinned !== undefined) {
     conditions.push("pinned = ?");
     params.push(opts.pinned ? 1 : 0);
+  }
+  if (opts.excludeComments) {
+    conditions.push("json_extract(payload, '$.parent') IS NULL");
   }
   if (opts.contentSearch) {
     conditions.push("content LIKE ?");

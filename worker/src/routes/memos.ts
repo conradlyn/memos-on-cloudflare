@@ -235,6 +235,7 @@ memoRoutes.get("/", authOptional, async (c) => {
     offset,
     orderBy,
     rowStatus: state === "ARCHIVED" ? "ARCHIVED" : "NORMAL",
+    excludeComments: true,
   };
 
   // Parse filter string (simplified CEL-like: key == "value" && key2 == "value2")
