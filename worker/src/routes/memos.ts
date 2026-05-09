@@ -81,7 +81,8 @@ function formatMemo(memo: memoDB.MemoRow, creatorUsername?: string) {
 async function getMemoAttachments(db: D1Database, memoId: number, memoUid: string) {
   const { results } = await db.prepare("SELECT * FROM attachment WHERE memo_id = ? ORDER BY created_ts ASC").bind(memoId).all<any>();
   return results.map((att) => ({
-    name: `attachments/${att.id}`,
+    id: att.id,
+    name: `attachments/${att.uid}`,
     uid: att.uid,
     createTime: new Date(att.created_ts * 1000).toISOString(),
     updateTime: new Date((att.updated_ts || att.created_ts) * 1000).toISOString(),
@@ -171,6 +172,56 @@ async function resolveCreatorUsernames(db: D1Database, memos: memoDB.MemoRow[]):
   return usernameMap;
 }
 
+function getAttachmentReference(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (value && typeof value === "object") {
+    const attachment = value as { name?: unknown; uid?: unknown; id?: unknown };
+    if (typeof attachment.name === "string") return attachment.name;
+    if (typeof attachment.uid === "string") return attachment.uid;
+    if (typeof attachment.id === "number" || typeof attachment.id === "string") return String(attachment.id);
+  }
+  return "";
+}
+
+async function resolveAttachmentIds(db: D1Database, user: UserPayload, references: unknown[]): Promise<number[]> {
+  const ids: number[] = [];
+  const seen = new Set<number>();
+
+  for (const referenceValue of references) {
+    const reference = getAttachmentReference(referenceValue);
+    if (!reference) continue;
+
+    const token = reference.startsWith("attachments/") ? reference.slice("attachments/".length) : reference;
+    const row = await db.prepare("SELECT id, creator_id FROM attachment WHERE uid = ? OR id = ?")
+      .bind(token, Number(token) || 0)
+      .first<{ id: number; creator_id: number }>();
+
+    if (!row) continue;
+    if (row.creator_id !== user.id && user.role !== "ADMIN") continue;
+    if (!seen.has(row.id)) {
+      ids.push(row.id);
+      seen.add(row.id);
+    }
+  }
+
+  return ids;
+}
+
+async function setMemoAttachments(db: D1Database, memoId: number, user: UserPayload, references: unknown[]) {
+  const attachmentIds = await resolveAttachmentIds(db, user, references);
+
+  await db.prepare("UPDATE attachment SET memo_id = NULL WHERE memo_id = ?").bind(memoId).run();
+  for (const attId of attachmentIds) {
+    if (user.role === "ADMIN") {
+      await db.prepare("UPDATE attachment SET memo_id = ? WHERE id = ?").bind(memoId, attId).run();
+    } else {
+      await db.prepare("UPDATE attachment SET memo_id = ? WHERE id = ? AND creator_id = ?").bind(memoId, attId, user.id).run();
+    }
+  }
+}
+
 // Create memo
 memoRoutes.post("/", authRequired, async (c) => {
   const user = c.get("user");
@@ -210,6 +261,10 @@ memoRoutes.post("/", authRequired, async (c) => {
     createdTs,
     updatedTs,
   });
+
+  if (Array.isArray(body.attachments) && body.attachments.length > 0) {
+    await setMemoAttachments(c.env.DB, memo.id, user, body.attachments);
+  }
 
   return c.json(await enrichMemo(c.env.DB, memo, user.username), 201);
 });
@@ -470,6 +525,10 @@ memoRoutes.post("/:id/comments", authRequired, async (c) => {
     }),
   });
 
+  if (Array.isArray(body.attachments) && body.attachments.length > 0) {
+    await setMemoAttachments(c.env.DB, comment.id, user, body.attachments);
+  }
+
   await relationDB.createRelation(c.env.DB, {
     memoId: parentMemo.id,
     relatedMemoId: comment.id,
@@ -616,17 +675,8 @@ memoRoutes.patch("/:id/attachments", authRequired, async (c) => {
     return c.json({ error: "Permission denied" }, 403);
   }
 
-  const body = await c.req.json<{ attachmentIds: number[] }>();
-  const ids = body.attachmentIds || [];
-
-  // Clear existing memo_id references
-  await c.env.DB.prepare("UPDATE attachment SET memo_id = NULL WHERE memo_id = ?").bind(memo.id).run();
-
-  // Set new references
-  for (const attId of ids) {
-    await c.env.DB.prepare("UPDATE attachment SET memo_id = ? WHERE id = ? AND creator_id = ?")
-      .bind(memo.id, attId, user.id).run();
-  }
+  const body = await c.req.json<{ attachmentIds?: Array<number | string>; attachments?: unknown[] }>();
+  await setMemoAttachments(c.env.DB, memo.id, user, body.attachments || body.attachmentIds || []);
 
   return c.json({});
 });

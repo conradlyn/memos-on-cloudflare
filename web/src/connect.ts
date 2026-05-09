@@ -67,11 +67,12 @@ export const memoServiceClient = {
 
   async setMemoAttachments(req: { name: string; attachments: any[] }) {
     const id = extractId(req.name, "memos/");
-    const attachmentIds = (req.attachments || []).map((a: any) => {
-      const attId = extractId(a.name, "attachments/");
-      return Number(attId);
-    });
-    await apiRequest<any>("PATCH", `/api/v1/memos/${id}/attachments`, { attachmentIds });
+    const attachments = (req.attachments || []).map((a: any) => ({
+      id: a.id,
+      name: a.name,
+      uid: a.uid,
+    }));
+    await apiRequest<any>("PATCH", `/api/v1/memos/${id}/attachments`, { attachments });
   },
 
   async listMemoAttachments(req: any) {
@@ -484,8 +485,7 @@ export const attachmentServiceClient = {
   },
 
   async batchDeleteAttachments(req: { names: string[] }) {
-    const ids = (req.names || []).map((n: string) => Number(extractId(n, "attachments/")));
-    await apiRequest<any>("POST", "/api/v1/attachments/batchDelete", { ids });
+    await apiRequest<any>("POST", "/api/v1/attachments/batchDelete", { names: req.names || [] });
   },
 };
 

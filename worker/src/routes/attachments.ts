@@ -27,7 +27,8 @@ const nowTs = () => Math.floor(Date.now() / 1000);
 
 function formatAttachment(att: AttachmentRow) {
   return {
-    name: `attachments/${att.id}`,
+    id: att.id,
+    name: `attachments/${att.uid}`,
     uid: att.uid,
     creatorId: att.creator_id,
     createTime: new Date(att.created_ts * 1000).toISOString(),
@@ -39,6 +40,35 @@ function formatAttachment(att: AttachmentRow) {
     storageType: att.storage_type,
     reference: att.reference,
   };
+}
+
+function decodeBase64Content(content: string): ArrayBuffer {
+  const base64 = content.includes(",") ? content.slice(content.indexOf(",") + 1) : content;
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes.buffer;
+}
+
+async function resolveMemoId(db: D1Database, memoName?: string | null): Promise<number | null> {
+  if (!memoName) {
+    return null;
+  }
+
+  const uid = memoName.startsWith("memos/") ? memoName.slice("memos/".length) : memoName;
+  const memo = await db.prepare("SELECT id FROM memo WHERE uid = ? OR id = ?")
+    .bind(uid, Number(uid) || 0)
+    .first<{ id: number }>();
+  return memo?.id ?? null;
+}
+
+async function findAttachmentByToken(db: D1Database, token: string): Promise<AttachmentRow | null> {
+  const normalized = token.startsWith("attachments/") ? token.slice("attachments/".length) : token;
+  return db.prepare("SELECT * FROM attachment WHERE uid = ? OR id = ?")
+    .bind(normalized, Number(normalized) || 0)
+    .first<AttachmentRow>();
 }
 
 const DEFAULT_MAX_UPLOAD_SIZE_MB = 100;
@@ -67,10 +97,11 @@ attachmentRoutes.post("/", authRequired, async (c) => {
   let filename: string;
   let fileType: string;
   let fileData: ArrayBuffer;
+  let memoId: number | null = null;
 
   if (contentType.includes("multipart/form-data")) {
     const formData = await c.req.formData();
-    const file = formData.get("file") as File | null;
+    const file = (formData.get("file") || formData.get("attachment") || formData.get("content")) as File | null;
     if (!file) return c.json({ error: "No file provided" }, 400);
     if (file.size > maxUploadSize) {
       return c.json(
@@ -84,13 +115,17 @@ attachmentRoutes.post("/", authRequired, async (c) => {
     filename = file.name;
     fileType = file.type;
     fileData = await file.arrayBuffer();
+    memoId = await resolveMemoId(c.env.DB, formData.get("memo")?.toString() || null);
   } else {
     const body = await c.req.json();
-    filename = body.filename || "unnamed";
-    fileType = body.type || "application/octet-stream";
-    if (body.content) {
-      const binary = atob(body.content);
-      if (binary.length > maxUploadSize) {
+    const attachment = body.attachment || body;
+    filename = attachment.filename || "unnamed";
+    fileType = attachment.type || "application/octet-stream";
+    memoId = await resolveMemoId(c.env.DB, attachment.memo);
+
+    if (attachment.content) {
+      fileData = decodeBase64Content(attachment.content);
+      if (fileData.byteLength > maxUploadSize) {
         return c.json(
           createErrorBody(`File too large. Maximum upload size is ${maxUploadSizeMb}MB.`, {
             errorKey: "message.maximum-upload-size-is",
@@ -99,11 +134,6 @@ attachmentRoutes.post("/", authRequired, async (c) => {
           413,
         );
       }
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i);
-      }
-      fileData = bytes.buffer;
     } else {
       return c.json({ error: "No content provided" }, 400);
     }
@@ -120,10 +150,10 @@ attachmentRoutes.post("/", authRequired, async (c) => {
   // Store metadata in D1
   const createdTs = nowTs();
   const att = await c.env.DB.prepare(
-    `INSERT INTO attachment (uid, creator_id, created_ts, updated_ts, filename, type, size, storage_type, reference)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'R2', ?) RETURNING *`
+    `INSERT INTO attachment (uid, creator_id, created_ts, updated_ts, filename, type, size, memo_id, storage_type, reference)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'R2', ?) RETURNING *`
   )
-    .bind(uid, user.id, createdTs, createdTs, filename, fileType, fileData.byteLength, r2Key)
+    .bind(uid, user.id, createdTs, createdTs, filename, fileType, fileData.byteLength, memoId, r2Key)
     .first<AttachmentRow>();
 
   return c.json(formatAttachment(att!), 201);
@@ -169,21 +199,17 @@ attachmentRoutes.get("/", authRequired, async (c) => {
 
 // Get attachment
 attachmentRoutes.get("/:id", async (c) => {
-  const id = Number(c.req.param("id"));
-  const att = await c.env.DB.prepare("SELECT * FROM attachment WHERE id = ?")
-    .bind(id).first<AttachmentRow>();
+  const att = await findAttachmentByToken(c.env.DB, c.req.param("id"));
   if (!att) return c.json({ error: "Not found" }, 404);
   return c.json(formatAttachment(att));
 });
 
 // Update attachment
 attachmentRoutes.patch("/:id", authRequired, async (c) => {
-  const id = Number(c.req.param("id"));
   const user = c.get("user");
   const body = await c.req.json<{ filename?: string; memoId?: number | null }>();
 
-  const att = await c.env.DB.prepare("SELECT * FROM attachment WHERE id = ?")
-    .bind(id).first<AttachmentRow>();
+  const att = await findAttachmentByToken(c.env.DB, c.req.param("id"));
   if (!att) return c.json({ error: "Not found" }, 404);
   if (att.creator_id !== user.id && user.role !== "ADMIN") {
     return c.json({ error: "Permission denied" }, 403);
@@ -197,23 +223,21 @@ attachmentRoutes.patch("/:id", authRequired, async (c) => {
 
   if (updates.length > 0) {
     updates.push("updated_ts = strftime('%s', 'now')");
-    params.push(id);
+    params.push(att.id);
     await c.env.DB.prepare(`UPDATE attachment SET ${updates.join(", ")} WHERE id = ?`)
       .bind(...params).run();
   }
 
   const updated = await c.env.DB.prepare("SELECT * FROM attachment WHERE id = ?")
-    .bind(id).first<AttachmentRow>();
+    .bind(att.id).first<AttachmentRow>();
   return c.json(formatAttachment(updated!));
 });
 
 // Delete attachment
 attachmentRoutes.delete("/:id", authRequired, async (c) => {
-  const id = Number(c.req.param("id"));
   const user = c.get("user");
 
-  const att = await c.env.DB.prepare("SELECT * FROM attachment WHERE id = ?")
-    .bind(id).first<AttachmentRow>();
+  const att = await findAttachmentByToken(c.env.DB, c.req.param("id"));
   if (!att) return c.json({ error: "Not found" }, 404);
   if (att.creator_id !== user.id && user.role !== "ADMIN") {
     return c.json({ error: "Permission denied" }, 403);
@@ -224,7 +248,7 @@ attachmentRoutes.delete("/:id", authRequired, async (c) => {
     await c.env.BUCKET.delete(att.reference);
   }
 
-  await c.env.DB.prepare("DELETE FROM attachment WHERE id = ?").bind(id).run();
+  await c.env.DB.prepare("DELETE FROM attachment WHERE id = ?").bind(att.id).run();
   return c.json({});
 });
 
@@ -234,14 +258,13 @@ attachmentRoutes.post("/:action", authRequired, async (c) => {
   if (action !== "batchDelete") return c.notFound();
 
   const user = c.get("user");
-  const body = await c.req.json<{ ids: number[] }>();
+  const body = await c.req.json<{ ids?: Array<number | string>; names?: string[] }>();
 
-  for (const id of body.ids || []) {
-    const att = await c.env.DB.prepare("SELECT * FROM attachment WHERE id = ? AND creator_id = ?")
-      .bind(id, user.id).first<AttachmentRow>();
-    if (att) {
+  for (const reference of body.names || body.ids || []) {
+    const att = await findAttachmentByToken(c.env.DB, String(reference));
+    if (att && (att.creator_id === user.id || user.role === "ADMIN")) {
       if (att.reference) await c.env.BUCKET.delete(att.reference);
-      await c.env.DB.prepare("DELETE FROM attachment WHERE id = ?").bind(id).run();
+      await c.env.DB.prepare("DELETE FROM attachment WHERE id = ?").bind(att.id).run();
     }
   }
 
