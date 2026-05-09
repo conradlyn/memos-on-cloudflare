@@ -45,6 +45,8 @@ app.route("/api/v1/idps", idpRoutes);
 app.route("/api/v1/ai", aiRoutes);
 app.route("/api/v1/sse", sseRoutes);
 app.route("/file", fileRoutes);
+app.get("/u/:username", (c) => c.env.ASSETS.fetch(c.req.raw));
+app.get("/u/:username/", (c) => c.env.ASSETS.fetch(c.req.raw));
 app.route("/u", rssRoutes);
 
 app.notFound((c) => {
