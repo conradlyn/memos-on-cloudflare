@@ -1,3 +1,4 @@
+import "@github/relative-time-element";
 import { BookmarkIcon } from "lucide-react";
 import { useCallback, useState } from "react";
 import { Link } from "react-router-dom";

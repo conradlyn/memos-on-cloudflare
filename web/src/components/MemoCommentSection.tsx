@@ -1,12 +1,13 @@
 import { MessageCircleIcon } from "lucide-react";
-import { useState } from "react";
-import MemoEditor from "@/components/MemoEditor";
-import MemoView from "@/components/MemoView";
+import { lazy, Suspense, useState } from "react";
+import MemoView from "@/components/MemoView/MemoView";
 import { Button } from "@/components/ui/button";
 import { extractMemoIdFromName } from "@/helpers/resource-names";
 import useCurrentUser from "@/hooks/useCurrentUser";
 import type { Memo } from "@/types/proto/api/v1/memo_service_pb";
 import { useTranslate } from "@/utils/i18n";
+
+const MemoEditor = lazy(() => import("@/components/MemoEditor"));
 
 interface Props {
   memo: Memo;
@@ -56,14 +57,16 @@ const MemoCommentSection = ({ memo, comments, parentPage }: Props) => {
         )}
         {showEditor && (
           <div className="w-full mb-2">
-            <MemoEditor
-              cacheKey={`${memo.name}-${memo.updateTime}-comment`}
-              placeholder={t("editor.add-your-comment-here")}
-              parentMemoName={memo.name}
-              autoFocus
-              onConfirm={handleCommentCreated}
-              onCancel={() => setShowEditor(false)}
-            />
+            <Suspense fallback={null}>
+              <MemoEditor
+                cacheKey={`${memo.name}-${memo.updateTime}-comment`}
+                placeholder={t("editor.add-your-comment-here")}
+                parentMemoName={memo.name}
+                autoFocus
+                onConfirm={handleCommentCreated}
+                onCancel={() => setShowEditor(false)}
+              />
+            </Suspense>
           </div>
         )}
         {comments.map((comment) => (

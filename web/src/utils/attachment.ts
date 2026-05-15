@@ -1,5 +1,7 @@
 import { Attachment, MotionMediaFamily, MotionMediaRole } from "@/types/proto/api/v1/attachment_service_pb";
 
+const withQueryParam = (url: string, param: string) => `${url}${url.includes("?") ? "&" : "?"}${param}=true`;
+
 export const getAttachmentUrl = (attachment: Attachment) => {
   if (attachment.externalLink) {
     return attachment.externalLink;
@@ -14,6 +16,10 @@ export const getAttachmentUrl = (attachment: Attachment) => {
 };
 
 export const getAttachmentThumbnailUrl = (attachment: Attachment) => {
+  if (attachment.externalLink) {
+    return withQueryParam(attachment.externalLink, "thumbnail");
+  }
+
   const uid = (attachment as unknown as { uid?: string }).uid;
   if (uid) {
     return `${window.location.origin}/file/attachments/${uid}/${attachment.filename}?thumbnail=true`;
@@ -23,6 +29,10 @@ export const getAttachmentThumbnailUrl = (attachment: Attachment) => {
 };
 
 export const getAttachmentMotionClipUrl = (attachment: Attachment) => {
+  if (attachment.externalLink) {
+    return withQueryParam(attachment.externalLink, "motion");
+  }
+
   const uid = (attachment as unknown as { uid?: string }).uid;
   if (uid) {
     return `${window.location.origin}/file/attachments/${uid}/${attachment.filename}?motion=true`;

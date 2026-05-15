@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useInstance } from "@/contexts/InstanceContext";
 import useCurrentUser from "@/hooks/useCurrentUser";
@@ -7,14 +7,15 @@ import { findTagMetadata } from "@/lib/tag";
 import { cn } from "@/lib/utils";
 import { State } from "@/types/proto/api/v1/common_pb";
 import { isSuperUser } from "@/utils/user";
-import MemoShareImageDialog from "../MemoActionMenu/MemoShareImageDialog";
-import MemoEditor from "../MemoEditor";
 import PreviewImageDialog from "../PreviewImageDialog";
 import { MemoBody, MemoCommentListView, MemoHeader } from "./components";
 import { MEMO_CARD_BASE_CLASSES } from "./constants";
 import { useImagePreview } from "./hooks";
 import { computeCommentAmount, MemoViewContext } from "./MemoViewContext";
 import type { MemoViewProps } from "./types";
+
+const MemoEditor = lazy(() => import("../MemoEditor"));
+const MemoShareImageDialog = lazy(() => import("../MemoActionMenu/MemoShareImageDialog"));
 
 const MemoView: React.FC<MemoViewProps> = (props: MemoViewProps) => {
   const { memo: memoData, className, parentPage: parentPageProp, compact, showCreator, showVisibility, showPinned } = props;
@@ -103,15 +104,17 @@ const MemoView: React.FC<MemoViewProps> = (props: MemoViewProps) => {
 
   if (showEditor) {
     return (
-      <MemoEditor
-        autoFocus
-        className="mb-2"
-        cacheKey={`inline-memo-editor-${memoData.name}`}
-        memo={memoData}
-        parentMemoName={memoData.parent || undefined}
-        onConfirm={closeEditor}
-        onCancel={closeEditor}
-      />
+      <Suspense fallback={null}>
+        <MemoEditor
+          autoFocus
+          className="mb-2"
+          cacheKey={`inline-memo-editor-${memoData.name}`}
+          memo={memoData}
+          parentMemoName={memoData.parent || undefined}
+          onConfirm={closeEditor}
+          onCancel={closeEditor}
+        />
+      </Suspense>
     );
   }
 
@@ -132,8 +135,10 @@ const MemoView: React.FC<MemoViewProps> = (props: MemoViewProps) => {
         initialIndex={previewState.index}
       />
 
-      {props.onShareImageDialogOpenChange && (
-        <MemoShareImageDialog open={Boolean(props.shareImageDialogOpen)} onOpenChange={props.onShareImageDialogOpenChange} />
+      {props.onShareImageDialogOpenChange && props.shareImageDialogOpen && (
+        <Suspense fallback={null}>
+          <MemoShareImageDialog open onOpenChange={props.onShareImageDialogOpenChange} />
+        </Suspense>
       )}
     </article>
   );

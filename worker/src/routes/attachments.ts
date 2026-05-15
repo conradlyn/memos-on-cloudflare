@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { Env, UserPayload } from "../types";
-import { authRequired } from "../middleware/auth";
+import { authOptional, authRequired } from "../middleware/auth";
 import * as settingDB from "../db/setting";
 import { createErrorBody } from "../error";
 import { deleteCachedKeys } from "../cache";
@@ -53,16 +53,25 @@ function decodeBase64Content(content: string): ArrayBuffer {
   return bytes.buffer;
 }
 
-async function resolveMemoId(db: D1Database, memoName?: string | null): Promise<number | null> {
-  if (!memoName) {
-    return null;
+type MemoTargetResolution = { memoId: number | null } | { error: string; status: 403 | 404 };
+
+async function resolveWritableMemoId(db: D1Database, user: UserPayload, memoName?: string | number | null): Promise<MemoTargetResolution> {
+  if (memoName === undefined || memoName === null || memoName === "") {
+    return { memoId: null };
   }
 
-  const uid = memoName.startsWith("memos/") ? memoName.slice("memos/".length) : memoName;
-  const memo = await db.prepare("SELECT id FROM memo WHERE uid = ? OR id = ?")
+  const memoToken = String(memoName);
+  const uid = memoToken.startsWith("memos/") ? memoToken.slice("memos/".length) : memoToken;
+  const memo = await db.prepare("SELECT id, creator_id FROM memo WHERE uid = ? OR id = ?")
     .bind(uid, Number(uid) || 0)
-    .first<{ id: number }>();
-  return memo?.id ?? null;
+    .first<{ id: number; creator_id: number }>();
+  if (!memo) {
+    return { error: "Memo not found", status: 404 };
+  }
+  if (memo.creator_id !== user.id && user.role !== "ADMIN") {
+    return { error: "Permission denied", status: 403 };
+  }
+  return { memoId: memo.id };
 }
 
 async function findAttachmentByToken(db: D1Database, token: string): Promise<AttachmentRow | null> {
@@ -70,6 +79,26 @@ async function findAttachmentByToken(db: D1Database, token: string): Promise<Att
   return db.prepare("SELECT * FROM attachment WHERE uid = ? OR id = ?")
     .bind(normalized, Number(normalized) || 0)
     .first<AttachmentRow>();
+}
+
+async function getAttachmentReadDeniedStatus(db: D1Database, att: AttachmentRow, user: UserPayload | undefined): Promise<401 | 403 | undefined> {
+  if (!att.memo_id) {
+    return user && (att.creator_id === user.id || user.role === "ADMIN") ? undefined : 403;
+  }
+
+  const memo = await db.prepare("SELECT visibility, creator_id FROM memo WHERE id = ?")
+    .bind(att.memo_id)
+    .first<{ visibility: string; creator_id: number }>();
+  if (!memo) {
+    return user && (att.creator_id === user.id || user.role === "ADMIN") ? undefined : 403;
+  }
+  if (memo.visibility === "PRIVATE" && (!user || user.id !== memo.creator_id)) {
+    return 403;
+  }
+  if (memo.visibility === "PROTECTED" && !user) {
+    return 401;
+  }
+  return undefined;
 }
 
 const DEFAULT_MAX_UPLOAD_SIZE_MB = 100;
@@ -116,13 +145,17 @@ attachmentRoutes.post("/", authRequired, async (c) => {
     filename = file.name;
     fileType = file.type;
     fileData = await file.arrayBuffer();
-    memoId = await resolveMemoId(c.env.DB, formData.get("memo")?.toString() || null);
+    const resolvedMemo = await resolveWritableMemoId(c.env.DB, user, formData.get("memo")?.toString() || null);
+    if ("error" in resolvedMemo) return c.json({ error: resolvedMemo.error }, resolvedMemo.status);
+    memoId = resolvedMemo.memoId;
   } else {
     const body = await c.req.json();
     const attachment = body.attachment || body;
     filename = attachment.filename || "unnamed";
     fileType = attachment.type || "application/octet-stream";
-    memoId = await resolveMemoId(c.env.DB, attachment.memo);
+    const resolvedMemo = await resolveWritableMemoId(c.env.DB, user, attachment.memo);
+    if ("error" in resolvedMemo) return c.json({ error: resolvedMemo.error }, resolvedMemo.status);
+    memoId = resolvedMemo.memoId;
 
     if (attachment.content) {
       fileData = decodeBase64Content(attachment.content);
@@ -200,16 +233,20 @@ attachmentRoutes.get("/", authRequired, async (c) => {
 });
 
 // Get attachment
-attachmentRoutes.get("/:id", async (c) => {
+attachmentRoutes.get("/:id", authOptional, async (c) => {
   const att = await findAttachmentByToken(c.env.DB, c.req.param("id"));
   if (!att) return c.json({ error: "Not found" }, 404);
+  const deniedStatus = await getAttachmentReadDeniedStatus(c.env.DB, att, c.get("user"));
+  if (deniedStatus) {
+    return c.json({ error: deniedStatus === 401 ? "Authentication required" : "Permission denied" }, deniedStatus);
+  }
   return c.json(formatAttachment(att));
 });
 
 // Update attachment
 attachmentRoutes.patch("/:id", authRequired, async (c) => {
   const user = c.get("user");
-  const body = await c.req.json<{ filename?: string; memoId?: number | null }>();
+  const body = await c.req.json<{ filename?: string; memoId?: number | null; memo?: string | null }>();
 
   const att = await findAttachmentByToken(c.env.DB, c.req.param("id"));
   if (!att) return c.json({ error: "Not found" }, 404);
@@ -221,7 +258,12 @@ attachmentRoutes.patch("/:id", authRequired, async (c) => {
   const params: (string | number | null)[] = [];
 
   if (body.filename !== undefined) { updates.push("filename = ?"); params.push(body.filename); }
-  if (body.memoId !== undefined) { updates.push("memo_id = ?"); params.push(body.memoId); }
+  if (body.memoId !== undefined || body.memo !== undefined) {
+    const resolvedMemo = await resolveWritableMemoId(c.env.DB, user, body.memo ?? body.memoId ?? null);
+    if ("error" in resolvedMemo) return c.json({ error: resolvedMemo.error }, resolvedMemo.status);
+    updates.push("memo_id = ?");
+    params.push(resolvedMemo.memoId);
+  }
 
   if (updates.length > 0) {
     updates.push("updated_ts = strftime('%s', 'now')");

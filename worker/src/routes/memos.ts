@@ -39,6 +39,66 @@ interface LinkMetadata {
   image: string;
 }
 
+const MAX_LINK_METADATA_BATCH_SIZE = 10;
+const MAX_LINK_METADATA_URL_LENGTH = 2048;
+
+function isBlockedLinkMetadataHostname(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
+  if (!host || host === "localhost" || host.endsWith(".localhost") || host === "metadata.google.internal") {
+    return true;
+  }
+  if (host === "::1" || (host.includes(":") && (host.startsWith("fc") || host.startsWith("fd") || host.startsWith("fe80:")))) {
+    return true;
+  }
+
+  const ipv4Parts = host.split(".");
+  if (ipv4Parts.length !== 4) {
+    return false;
+  }
+
+  const octets = ipv4Parts.map((part) => Number(part));
+  if (octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) {
+    return false;
+  }
+
+  const [first, second] = octets;
+  return (
+    first === 0 ||
+    first === 10 ||
+    first === 127 ||
+    (first === 169 && second === 254) ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168)
+  );
+}
+
+function normalizeLinkMetadataUrl(rawUrl: string | undefined): string | undefined {
+  const trimmedUrl = rawUrl?.trim();
+  if (!trimmedUrl || trimmedUrl.length > MAX_LINK_METADATA_URL_LENGTH) {
+    return undefined;
+  }
+
+  try {
+    const url = new URL(trimmedUrl);
+    if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username || url.password || isBlockedLinkMetadataHostname(url.hostname)) {
+      return undefined;
+    }
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return undefined;
+  }
+}
+
+function emptyLinkMetadata(url?: string): LinkMetadata {
+  return {
+    ...(url ? { url } : {}),
+    title: "",
+    description: "",
+    image: "",
+  };
+}
+
 function parseMemoPayload(content: string) {
   const tags: string[] = [];
   const tagRegex = /#([a-zA-Z0-9_一-鿿぀-ゟ゠-ヿ/\-]+)/g;
@@ -86,6 +146,27 @@ function formatMemo(memo: memoDB.MemoRow, creatorUsername?: string) {
   };
 }
 
+function getMemoReadDeniedStatus(memo: Pick<memoDB.MemoRow, "visibility" | "creator_id">, user: UserPayload | undefined): 401 | 403 | undefined {
+  if (memo.visibility === "PRIVATE" && (!user || user.id !== memo.creator_id)) {
+    return 403;
+  }
+  if (memo.visibility === "PROTECTED" && !user) {
+    return 401;
+  }
+  return undefined;
+}
+
+function getMemoReadErrorMessage(status: 401 | 403): string {
+  return status === 401 ? "Authentication required" : "Permission denied";
+}
+
+function formatMemoRelationSnippet(memo: Pick<memoDB.MemoRow, "uid" | "content" | "visibility" | "creator_id"> | undefined, user: UserPayload | undefined) {
+  if (!memo || getMemoReadDeniedStatus(memo, user)) {
+    return undefined;
+  }
+  return { name: `memos/${memo.uid}`, snippet: memo.content.slice(0, 120) };
+}
+
 function createPlaceholders(count: number) {
   return Array.from({ length: count }, () => "?").join(", ");
 }
@@ -121,19 +202,21 @@ async function getMemoAttachments(db: D1Database, memoId: number, memoUid: strin
   }));
 }
 
-async function getMemoRelations(db: D1Database, memoId: number) {
+async function getMemoRelations(db: D1Database, memoId: number, user?: UserPayload) {
   const relations = await relationDB.listRelations(db, memoId);
-  return Promise.all(
+  const resolved = await Promise.all(
     relations.map(async (relation) => {
       const memo = await memoDB.getMemoById(db, relation.memo_id);
       const relatedMemo = await memoDB.getMemoById(db, relation.related_memo_id);
-      return {
-        memo: memo ? { name: `memos/${memo.uid}`, snippet: memo.content.slice(0, 120) } : undefined,
-        relatedMemo: relatedMemo ? { name: `memos/${relatedMemo.uid}`, snippet: relatedMemo.content.slice(0, 120) } : undefined,
+      const formattedRelation = {
+        memo: formatMemoRelationSnippet(memo || undefined, user),
+        relatedMemo: formatMemoRelationSnippet(relatedMemo || undefined, user),
         type: relation.type,
       };
+      return formattedRelation.memo && formattedRelation.relatedMemo ? formattedRelation : undefined;
     }),
   );
+  return resolved.filter((relation) => relation !== undefined);
 }
 
 function formatReaction(reaction: reactionDB.ReactionRow, creatorUsername?: string) {
@@ -178,10 +261,10 @@ function formatShare(share: shareDB.ShareRow, memoUid: string) {
   };
 }
 
-async function enrichMemo(db: D1Database, memo: memoDB.MemoRow, creatorUsername?: string) {
+async function enrichMemo(db: D1Database, memo: memoDB.MemoRow, creatorUsername?: string, user?: UserPayload) {
   const [attachments, relations, reactions] = await Promise.all([
     getMemoAttachments(db, memo.id, memo.uid),
-    getMemoRelations(db, memo.id),
+    getMemoRelations(db, memo.id, user),
     getMemoReactions(db, memo.uid),
   ]);
   return {
@@ -231,12 +314,12 @@ async function listReactionRowsByContentIds(db: D1Database, contentIds: string[]
 }
 
 async function getMemoSnippetMapByIds(db: D1Database, memoIds: number[]) {
-  const memoMap = new Map<number, { uid: string; content: string }>();
+  const memoMap = new Map<number, Pick<memoDB.MemoRow, "uid" | "content" | "visibility" | "creator_id">>();
   const uniqueIds = [...new Set(memoIds)];
   for (const chunk of chunkValues(uniqueIds, 900)) {
     const { results } = await db.prepare(
-      `SELECT id, uid, content FROM memo WHERE id IN (${createPlaceholders(chunk.length)})`
-    ).bind(...chunk).all<{ id: number; uid: string; content: string }>();
+      `SELECT id, uid, content, visibility, creator_id FROM memo WHERE id IN (${createPlaceholders(chunk.length)})`
+    ).bind(...chunk).all<memoDB.MemoRow>();
     for (const memo of results) {
       memoMap.set(memo.id, memo);
     }
@@ -244,7 +327,7 @@ async function getMemoSnippetMapByIds(db: D1Database, memoIds: number[]) {
   return memoMap;
 }
 
-async function enrichMemos(db: D1Database, memos: memoDB.MemoRow[], creatorUsernameMap?: Map<number, string>) {
+async function enrichMemos(db: D1Database, memos: memoDB.MemoRow[], creatorUsernameMap?: Map<number, string>, user?: UserPayload) {
   if (memos.length === 0) {
     return [];
   }
@@ -299,10 +382,13 @@ async function enrichMemos(db: D1Database, memos: memoDB.MemoRow[], creatorUsern
     const memo = relationMemoMap.get(relation.memo_id);
     const relatedMemo = relationMemoMap.get(relation.related_memo_id);
     const formattedRelation = {
-      memo: memo ? { name: `memos/${memo.uid}`, snippet: memo.content.slice(0, 120) } : undefined,
-      relatedMemo: relatedMemo ? { name: `memos/${relatedMemo.uid}`, snippet: relatedMemo.content.slice(0, 120) } : undefined,
+      memo: formatMemoRelationSnippet(memo, user),
+      relatedMemo: formatMemoRelationSnippet(relatedMemo, user),
       type: relation.type,
     };
+    if (!formattedRelation.memo || !formattedRelation.relatedMemo) {
+      continue;
+    }
 
     if (memoIdSet.has(relation.memo_id)) {
       const relations = relationsByMemoId.get(relation.memo_id) || [];
@@ -333,10 +419,13 @@ async function enrichMemos(db: D1Database, memos: memoDB.MemoRow[], creatorUsern
 }
 
 async function invalidateMemoDerivedCaches(cache: KVNamespace | undefined, usernames: Array<string | undefined>) {
-  const keys = ["user:stats:all", "instance:stats"];
+  const keys = ["user:stats:all", "user:stats:all:public", "instance:stats"];
   for (const username of usernames) {
     if (username) {
       keys.push(`user:stats:${username}`);
+      keys.push(`user:stats:${username}:public`);
+      keys.push(`user:stats:${username}:authenticated`);
+      keys.push(`user:stats:${username}:owner`);
     }
   }
   await deleteCachedKeys(cache, keys);
@@ -469,7 +558,7 @@ memoRoutes.post("/", authRequired, async (c) => {
   }
 
   await invalidateMemoDerivedCaches(c.env.CACHE, [user.username]);
-  return c.json(await enrichMemo(c.env.DB, memo, user.username), 201);
+  return c.json(await enrichMemo(c.env.DB, memo, user.username, user), 201);
 });
 
 // List memos
@@ -530,32 +619,20 @@ memoRoutes.get("/", authOptional, async (c) => {
     if (createdBeforeMatch) opts.createdTsBefore = Math.floor(Number(createdBeforeMatch[1]));
   }
 
-  // Visibility enforcement
   if (!user) {
     opts.visibility = "PUBLIC";
-  } else if (!opts.creatorId || opts.creatorId !== user.id) {
-    if (!opts.visibility) {
-      // Non-owner can see PUBLIC and PROTECTED
-      // We'll handle this in a custom way
-    }
+  } else {
+    opts.readableByUserId = user.id;
   }
 
   const { memos, total } = await memoDB.listMemos(c.env.DB, opts);
 
-  // Filter by visibility for non-owners
-  let filtered = memos;
-  if (user && !opts.visibility && (!opts.creatorId || opts.creatorId !== user.id)) {
-    filtered = memos.filter(
-      (m) => m.visibility === "PUBLIC" || m.visibility === "PROTECTED" || m.creator_id === user.id
-    );
-  }
-
   const nextPageToken = offset + pageSize < total ? btoa(String(offset + pageSize)) : "";
 
-  const usernameMap = await resolveCreatorUsernames(c.env.DB, filtered);
+  const usernameMap = await resolveCreatorUsernames(c.env.DB, memos);
 
   return c.json({
-    memos: await enrichMemos(c.env.DB, filtered, usernameMap),
+    memos: await enrichMemos(c.env.DB, memos, usernameMap, user),
     nextPageToken,
     totalSize: total,
   });
@@ -577,16 +654,13 @@ memoRoutes.get("/:id", authOptional, async (c) => {
     return c.json({ error: "Memo not found" }, 404);
   }
 
-  // Visibility check
-  if (memo.visibility === "PRIVATE" && (!user || user.id !== memo.creator_id)) {
-    return c.json({ error: "Permission denied" }, 403);
-  }
-  if (memo.visibility === "PROTECTED" && !user) {
-    return c.json({ error: "Authentication required" }, 401);
+  const deniedStatus = getMemoReadDeniedStatus(memo, user);
+  if (deniedStatus) {
+    return c.json({ error: getMemoReadErrorMessage(deniedStatus) }, deniedStatus);
   }
 
   const creatorUser = await c.env.DB.prepare("SELECT username FROM user WHERE id = ?").bind(memo.creator_id).first<{ username: string }>();
-  return c.json(await enrichMemo(c.env.DB, memo, creatorUser?.username));
+  return c.json(await enrichMemo(c.env.DB, memo, creatorUser?.username, user));
 });
 
 // Update memo
@@ -647,7 +721,7 @@ memoRoutes.patch("/:id", authRequired, async (c) => {
 
   const creatorName = updated.creator_id === user.id ? user.username : (await c.env.DB.prepare("SELECT username FROM user WHERE id = ?").bind(updated.creator_id).first<{ username: string }>())?.username;
   await invalidateMemoDerivedCaches(c.env.CACHE, [creatorName]);
-  return c.json(await enrichMemo(c.env.DB, updated, creatorName));
+  return c.json(await enrichMemo(c.env.DB, updated, creatorName, user));
 });
 
 // Delete memo
@@ -678,13 +752,26 @@ memoRoutes.delete("/:id", authRequired, async (c) => {
 // --- Memo Relations ---
 memoRoutes.get("/:id/relations", authOptional, async (c) => {
   const id = c.req.param("id");
+  const user = c.get("user");
   const memo = /^\d+$/.test(id)
     ? await memoDB.getMemoById(c.env.DB, Number(id))
     : await memoDB.getMemoByUid(c.env.DB, id);
   if (!memo) return c.json({ error: "Memo not found" }, 404);
+  const deniedStatus = getMemoReadDeniedStatus(memo, user);
+  if (deniedStatus) {
+    return c.json({ error: getMemoReadErrorMessage(deniedStatus) }, deniedStatus);
+  }
 
   const relations = await relationDB.listRelations(c.env.DB, memo.id);
-  return c.json({ relations });
+  const visibleRelations: relationDB.RelationRow[] = [];
+  for (const relation of relations) {
+    const otherMemoId = relation.memo_id === memo.id ? relation.related_memo_id : relation.memo_id;
+    const otherMemo = await memoDB.getMemoById(c.env.DB, otherMemoId);
+    if (!otherMemo || !getMemoReadDeniedStatus(otherMemo, user)) {
+      visibleRelations.push(relation);
+    }
+  }
+  return c.json({ relations: visibleRelations });
 });
 
 memoRoutes.patch("/:id/relations", authRequired, async (c) => {
@@ -712,6 +799,10 @@ memoRoutes.post("/:id/comments", authRequired, async (c) => {
     ? await memoDB.getMemoById(c.env.DB, Number(id))
     : await memoDB.getMemoByUid(c.env.DB, id);
   if (!parentMemo) return c.json({ error: "Memo not found" }, 404);
+  const deniedStatus = getMemoReadDeniedStatus(parentMemo, user);
+  if (deniedStatus) {
+    return c.json({ error: getMemoReadErrorMessage(deniedStatus) }, deniedStatus);
+  }
 
   const body = await c.req.json();
   const uid = generateUid();
@@ -755,15 +846,20 @@ memoRoutes.post("/:id/comments", authRequired, async (c) => {
   }
 
   await invalidateMemoDerivedCaches(c.env.CACHE, [user.username]);
-  return c.json(await enrichMemo(c.env.DB, comment, user.username), 201);
+  return c.json(await enrichMemo(c.env.DB, comment, user.username, user), 201);
 });
 
 memoRoutes.get("/:id/comments", authOptional, async (c) => {
   const id = c.req.param("id");
+  const user = c.get("user");
   const memo = /^\d+$/.test(id)
     ? await memoDB.getMemoById(c.env.DB, Number(id))
     : await memoDB.getMemoByUid(c.env.DB, id);
   if (!memo) return c.json({ error: "Memo not found" }, 404);
+  const deniedStatus = getMemoReadDeniedStatus(memo, user);
+  if (deniedStatus) {
+    return c.json({ error: getMemoReadErrorMessage(deniedStatus) }, deniedStatus);
+  }
 
   const relations = await relationDB.listRelations(c.env.DB, memo.id);
   const commentRelations = relations.filter((r) => r.type === "COMMENT");
@@ -771,12 +867,12 @@ memoRoutes.get("/:id/comments", authOptional, async (c) => {
 
   for (const rel of commentRelations) {
     const comment = await memoDB.getMemoById(c.env.DB, rel.related_memo_id);
-    if (comment) comments.push(comment);
+    if (comment && !getMemoReadDeniedStatus(comment, user)) comments.push(comment);
   }
 
   const usernameMap = await resolveCreatorUsernames(c.env.DB, comments);
   return c.json({
-    memos: await enrichMemos(c.env.DB, comments, usernameMap),
+    memos: await enrichMemos(c.env.DB, comments, usernameMap, user),
     nextPageToken: "",
     totalSize: comments.length,
   });
@@ -785,10 +881,15 @@ memoRoutes.get("/:id/comments", authOptional, async (c) => {
 // --- Memo Reactions ---
 memoRoutes.get("/:id/reactions", authOptional, async (c) => {
   const id = c.req.param("id");
+  const user = c.get("user");
   const memo = /^\d+$/.test(id)
     ? await memoDB.getMemoById(c.env.DB, Number(id))
     : await memoDB.getMemoByUid(c.env.DB, id);
   if (!memo) return c.json({ error: "Memo not found" }, 404);
+  const deniedStatus = getMemoReadDeniedStatus(memo, user);
+  if (deniedStatus) {
+    return c.json({ error: getMemoReadErrorMessage(deniedStatus) }, deniedStatus);
+  }
 
   const reactions = await getMemoReactions(c.env.DB, memo.uid);
   return c.json({ reactions });
@@ -801,6 +902,10 @@ memoRoutes.post("/:id/reactions", authRequired, async (c) => {
     ? await memoDB.getMemoById(c.env.DB, Number(id))
     : await memoDB.getMemoByUid(c.env.DB, id);
   if (!memo) return c.json({ error: "Memo not found" }, 404);
+  const deniedStatus = getMemoReadDeniedStatus(memo, user);
+  if (deniedStatus) {
+    return c.json({ error: getMemoReadErrorMessage(deniedStatus) }, deniedStatus);
+  }
 
   const body = await c.req.json<{ reactionType: string }>();
   const reaction = await reactionDB.upsertReaction(c.env.DB, {
@@ -820,12 +925,16 @@ memoRoutes.delete("/:id/reactions/:reactionId", authRequired, async (c) => {
 });
 
 // --- Memo Shares ---
-memoRoutes.get("/:id/shares", authOptional, async (c) => {
+memoRoutes.get("/:id/shares", authRequired, async (c) => {
   const id = c.req.param("id");
+  const user = c.get("user");
   const memo = /^\d+$/.test(id)
     ? await memoDB.getMemoById(c.env.DB, Number(id))
     : await memoDB.getMemoByUid(c.env.DB, id);
   if (!memo) return c.json({ error: "Memo not found" }, 404);
+  if (memo.creator_id !== user.id && user.role !== "ADMIN") {
+    return c.json({ error: "Permission denied" }, 403);
+  }
 
   const shares = await shareDB.listShares(c.env.DB, memo.id);
   return c.json({ shares: shares.map((s) => formatShare(s, memo.uid)) });
@@ -852,20 +961,33 @@ memoRoutes.post("/:id/shares", authRequired, async (c) => {
 });
 
 memoRoutes.delete("/:id/shares/:shareId", authRequired, async (c) => {
+  const id = c.req.param("id");
   const shareId = c.req.param("shareId");
   const user = c.get("user");
+  const memo = /^\d+$/.test(id)
+    ? await memoDB.getMemoById(c.env.DB, Number(id))
+    : await memoDB.getMemoByUid(c.env.DB, id);
+  if (!memo) return c.json({ error: "Memo not found" }, 404);
+  if (memo.creator_id !== user.id && user.role !== "ADMIN") {
+    return c.json({ error: "Permission denied" }, 403);
+  }
 
-  await shareDB.deleteShare(c.env.DB, shareId, user.id);
+  await shareDB.deleteShare(c.env.DB, shareId, memo.id);
   return c.json({});
 });
 
 // --- Memo Attachments ---
 memoRoutes.get("/:id/attachments", authOptional, async (c) => {
   const id = c.req.param("id");
+  const user = c.get("user");
   const memo = /^\d+$/.test(id)
     ? await memoDB.getMemoById(c.env.DB, Number(id))
     : await memoDB.getMemoByUid(c.env.DB, id);
   if (!memo) return c.json({ error: "Memo not found" }, 404);
+  const deniedStatus = getMemoReadDeniedStatus(memo, user);
+  if (deniedStatus) {
+    return c.json({ error: getMemoReadErrorMessage(deniedStatus) }, deniedStatus);
+  }
 
   const attachments = await getMemoAttachments(c.env.DB, memo.id, memo.uid);
   return c.json({ attachments });
@@ -912,7 +1034,7 @@ memoRoutes.get("/shares/:token", async (c) => {
 
 // --- Link metadata ---
 memoRoutes.get("/-/linkMetadata", async (c) => {
-  const url = c.req.query("url");
+  const url = normalizeLinkMetadataUrl(c.req.query("url"));
   if (!url) return c.json({ error: "URL required" }, 400);
 
   return c.json(await getLinkMetadata(c.env, url));
@@ -920,10 +1042,13 @@ memoRoutes.get("/-/linkMetadata", async (c) => {
 
 memoRoutes.post("/-/linkMetadata\\:batchGet", async (c) => {
   const body = await c.req.json<{ urls: string[] }>();
-  const urls = body.urls || [];
+  const urls = (body.urls || []).slice(0, MAX_LINK_METADATA_BATCH_SIZE);
 
   const linkMetadata = await Promise.all(
-    urls.map((url) => getLinkMetadata(c.env, url, true)),
+    urls.map((url) => {
+      const normalizedUrl = normalizeLinkMetadataUrl(url);
+      return normalizedUrl ? getLinkMetadata(c.env, normalizedUrl, true) : emptyLinkMetadata(url);
+    }),
   );
 
   return c.json({ linkMetadata });

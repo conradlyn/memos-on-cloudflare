@@ -57,7 +57,7 @@ idpRoutes.patch("/:id", authRequired, async (c) => {
   const id = extractIdentityProviderUid(c.req.param("id"));
   const body = await c.req.json();
   const updates: string[] = [];
-  const params: any[] = [];
+  const params: unknown[] = [];
 
   const title =
     typeof body.title === "string"
@@ -78,8 +78,14 @@ idpRoutes.patch("/:id", authRequired, async (c) => {
     params.push(body.identifierFilter ?? body.identifier_filter ?? "");
   }
   if (body.config !== undefined) {
+    const existing = await c.env.DB.prepare("SELECT * FROM idp WHERE id = ? OR uid = ?").bind(id, id).first<IdpRow>();
+    const nextConfig = normalizeStoredOAuth2Config(body.config);
+    if (nextConfig.clientSecret === "" && existing) {
+      const existingConfig = normalizeStoredOAuth2Config(existing.config);
+      nextConfig.clientSecret = existingConfig.clientSecret;
+    }
     updates.push("config = ?");
-    params.push(JSON.stringify(normalizeStoredOAuth2Config(body.config)));
+    params.push(JSON.stringify(nextConfig));
   }
 
   if (updates.length > 0) {

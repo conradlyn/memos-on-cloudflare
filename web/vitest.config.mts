@@ -12,6 +12,11 @@ export default defineConfig({
     // test-time module resolution matches production/build.
     alias: {
       "@/": `${resolve(__dirname, "src")}/`,
+      "@bufbuild/protobuf/codegenv2": resolve(__dirname, "src/shims/protobuf-codegenv2.ts"),
+      "@bufbuild/protobuf/wkt": resolve(__dirname, "src/shims/protobuf-wkt.ts"),
+      "@bufbuild/protobuf": resolve(__dirname, "src/shims/protobuf.ts"),
+      "@connectrpc/connect-web": resolve(__dirname, "src/shims/connect-web.ts"),
+      "@connectrpc/connect": resolve(__dirname, "src/shims/connect.ts"),
     },
   },
   test: {

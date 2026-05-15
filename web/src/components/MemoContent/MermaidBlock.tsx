@@ -1,4 +1,3 @@
-import mermaid from "mermaid";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
@@ -11,6 +10,14 @@ interface MermaidBlockProps {
 }
 
 type MermaidTheme = "default" | "dark";
+type MermaidApi = typeof import("mermaid").default;
+
+let mermaidPromise: Promise<MermaidApi> | undefined;
+
+const loadMermaid = () => {
+  mermaidPromise ??= import("mermaid").then((module) => module.default);
+  return mermaidPromise;
+};
 
 const toMermaidTheme = (appTheme: string): MermaidTheme => (appTheme === "default-dark" ? "dark" : "default");
 
@@ -38,34 +45,43 @@ export const MermaidBlock = ({ children, className }: MermaidBlockProps) => {
     return setupSystemThemeListener(() => setSystemThemeChange((n) => n + 1));
   }, [themePreference]);
 
-  // Initialize Mermaid when theme changes
-  useEffect(() => {
-    mermaid.initialize({
-      startOnLoad: false,
-      theme: toMermaidTheme(currentTheme),
-      securityLevel: "strict",
-      fontFamily: "inherit",
-      suppressErrorRendering: true,
-    });
-  }, [currentTheme]);
-
   // Render diagram when content or theme changes
   useEffect(() => {
-    if (!codeContent) return;
+    if (!codeContent) {
+      setSvg("");
+      setError("");
+      return;
+    }
 
+    let cancelled = false;
     const id = `mermaid-${Math.random().toString(36).substring(7)}`;
 
-    mermaid
-      .render(id, codeContent)
+    loadMermaid()
+      .then((mermaid) => {
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: toMermaidTheme(currentTheme),
+          securityLevel: "strict",
+          fontFamily: "inherit",
+          suppressErrorRendering: true,
+        });
+        return mermaid.render(id, codeContent);
+      })
       .then(({ svg: renderedSvg }) => {
+        if (cancelled) return;
         setSvg(renderedSvg);
         setError("");
       })
       .catch((err) => {
+        if (cancelled) return;
         console.error("Failed to render mermaid diagram:", err);
         setSvg("");
         setError(formatErrorMessage(err));
       });
+
+    return () => {
+      cancelled = true;
+    };
   }, [codeContent, currentTheme]);
 
   if (error) {

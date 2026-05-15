@@ -1,6 +1,4 @@
-import "@github/relative-time-element";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import React, { useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { Toaster } from "react-hot-toast";
@@ -20,6 +18,14 @@ import { applyLocaleEarly } from "./utils/i18n";
 import { applyThemeEarly } from "./utils/theme";
 import "leaflet/dist/leaflet.css";
 import "katex/dist/katex.min.css";
+
+const ReactQueryDevtools = import.meta.env.DEV
+  ? React.lazy(() =>
+      import("@tanstack/react-query-devtools").then((module) => ({
+        default: module.ReactQueryDevtools,
+      })),
+    )
+  : undefined;
 
 // Apply theme and locale early to prevent flash
 applyThemeEarly();
@@ -71,7 +77,11 @@ function Main() {
             </ViewProvider>
           </AuthProvider>
         </InstanceProvider>
-        <ReactQueryDevtools initialIsOpen={false} />
+        {ReactQueryDevtools && (
+          <React.Suspense fallback={null}>
+            <ReactQueryDevtools initialIsOpen={false} />
+          </React.Suspense>
+        )}
       </QueryClientProvider>
     </ErrorBoundary>
   );

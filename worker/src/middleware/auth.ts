@@ -57,8 +57,20 @@ async function findUserByPATHash(db: D1Database, tokenHash: string): Promise<PAT
 
   for (const row of results || []) {
     try {
-      const tokens = JSON.parse(row.value || "[]") as Array<{ hash?: string }>;
-      if (tokens.some((token) => token.hash === tokenHash)) {
+      if (row.row_status !== "NORMAL") {
+        continue;
+      }
+
+      const tokens = JSON.parse(row.value || "[]") as Array<{ hash?: string; expiresAt?: string | null }>;
+      const matchedToken = tokens.find((token) => token.hash === tokenHash);
+      if (matchedToken) {
+        if (matchedToken.expiresAt) {
+          const expiresAt = Date.parse(matchedToken.expiresAt);
+          if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+            continue;
+          }
+        }
+
         return {
           user_id: row.user_id,
           username: row.username,

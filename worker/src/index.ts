@@ -29,7 +29,7 @@ app.get("/api/v1/user/me", authRequired, async (c) => {
     return c.json({ error: "User not found" }, 404);
   }
 
-  const formattedUser = formatUser(user);
+  const formattedUser = formatUser(user, { includeEmail: true });
   return c.json({
     user: formattedUser,
     ...formattedUser,

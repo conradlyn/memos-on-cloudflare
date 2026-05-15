@@ -25,6 +25,7 @@ export interface ListMemosOpts {
   pageSize?: number;
   offset?: number;
   orderBy?: string;
+  readableByUserId?: number;
 }
 
 export async function createMemo(
@@ -119,6 +120,10 @@ export async function listMemos(
   if (opts.createdTsBefore !== undefined) {
     conditions.push("created_ts < ?");
     params.push(opts.createdTsBefore);
+  }
+  if (opts.readableByUserId !== undefined) {
+    conditions.push("(visibility IN ('PUBLIC', 'PROTECTED') OR creator_id = ?)");
+    params.push(opts.readableByUserId);
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";

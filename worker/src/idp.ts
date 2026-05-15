@@ -98,8 +98,17 @@ export function hasStoredOAuth2Config(config: StoredOAuth2Config): boolean {
   );
 }
 
-export function serializeIdentityProvider(row: Pick<IdpRow, "uid" | "name" | "type" | "identifier_filter" | "config">) {
+export function serializeIdentityProvider(
+  row: Pick<IdpRow, "uid" | "name" | "type" | "identifier_filter" | "config">,
+  options: { includeClientSecret?: boolean } = {},
+) {
   const oauth2Config = normalizeStoredOAuth2Config(row.config);
+  const serializedOAuth2Config = options.includeClientSecret
+    ? oauth2Config
+    : {
+        ...oauth2Config,
+        clientSecret: "",
+      };
 
   return {
     name: buildIdentityProviderName(row.uid),
@@ -110,7 +119,7 @@ export function serializeIdentityProvider(row: Pick<IdpRow, "uid" | "name" | "ty
       ? {
           config: {
             case: "oauth2Config" as const,
-            value: oauth2Config,
+            value: serializedOAuth2Config,
           },
         }
       : {

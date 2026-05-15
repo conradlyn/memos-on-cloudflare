@@ -11,9 +11,9 @@
     "db:migrate:remote": "wrangler d1 migrations apply cfmemos-db --remote"
   },
   "dependencies": {
-    "hono": "^4.7.0",
-    "jose": "^6.0.0",
-    "bcryptjs": "^2.4.3"
+    "bcryptjs": "^2.4.3",
+    "hono": "^4.12.18",
+    "jose": "^6.0.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250501.0",

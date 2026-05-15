@@ -3,6 +3,7 @@ import { getCookie } from "hono/cookie";
 import type { Env, UserPayload } from "../types";
 import { authOptional } from "../middleware/auth";
 import { verifyRefreshToken } from "../auth/jwt";
+import * as shareDB from "../db/share";
 
 type FileApp = { Bindings: Env; Variables: { user: UserPayload } };
 
@@ -77,6 +78,19 @@ const resolveUserFromRequest = async (c: { req: { header: (name: string) => stri
   }
 };
 
+async function hasValidShareTokenForAttachment(db: D1Database, token: string | undefined, memoId: number | null) {
+  if (!token || !memoId) {
+    return false;
+  }
+
+  const share = await shareDB.getShareByUid(db, token);
+  if (!share || share.memo_id !== memoId) {
+    return false;
+  }
+
+  return !share.expires_ts || share.expires_ts >= Math.floor(Date.now() / 1000);
+}
+
 // Serve attachment file
 fileRoutes.get("/attachments/:uid/:filename", authOptional, async (c) => {
   const uid = c.req.param("uid");
@@ -89,6 +103,7 @@ fileRoutes.get("/attachments/:uid/:filename", authOptional, async (c) => {
   if (!att) return c.notFound();
 
   let cacheControl = "private, no-store";
+  const hasShareAccess = await hasValidShareTokenForAttachment(c.env.DB, c.req.query("share_token") || c.req.query("shareToken"), att.memo_id);
 
   // Check visibility via memo
   if (att.memo_id) {
@@ -97,18 +112,30 @@ fileRoutes.get("/attachments/:uid/:filename", authOptional, async (c) => {
     ).bind(att.memo_id).first<{ visibility: string; creator_id: number }>();
 
     if (memo) {
+      if (!hasShareAccess) {
+        const user = await resolveUserFromRequest(c);
+        if (memo.visibility === "PRIVATE" && (!user || user.id !== memo.creator_id)) {
+          return c.json({ error: "Permission denied" }, 403);
+        }
+        if (memo.visibility === "PROTECTED" && !user) {
+          return c.json({ error: "Authentication required" }, 401);
+        }
+        if (memo.visibility === "PUBLIC") {
+          cacheControl = "public, max-age=31536000, immutable";
+        } else if (user?.id === memo.creator_id) {
+          cacheControl = "private, max-age=300";
+        }
+      }
+    } else {
       const user = await resolveUserFromRequest(c);
-      if (memo.visibility === "PRIVATE" && (!user || user.id !== memo.creator_id)) {
+      if (!user || (user.id !== att.creator_id && user.role !== "ADMIN")) {
         return c.json({ error: "Permission denied" }, 403);
       }
-      if (memo.visibility === "PROTECTED" && !user) {
-        return c.json({ error: "Authentication required" }, 401);
-      }
-      if (memo.visibility === "PUBLIC") {
-        cacheControl = "public, max-age=31536000, immutable";
-      } else if (user?.id === memo.creator_id) {
-        cacheControl = "private, max-age=300";
-      }
+    }
+  } else {
+    const user = await resolveUserFromRequest(c);
+    if (!user || (user.id !== att.creator_id && user.role !== "ADMIN")) {
+      return c.json({ error: "Permission denied" }, 403);
     }
   }
 

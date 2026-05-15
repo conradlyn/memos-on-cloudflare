@@ -66,7 +66,7 @@ async function buildCurrentUserResponse(db: D1Database, userId: number) {
     return null;
   }
 
-  const formattedUser = formatUser(user);
+  const formattedUser = formatUser(user, { includeEmail: true });
   return {
     user: formattedUser,
     ...formattedUser,
@@ -197,7 +197,7 @@ authRoutes.post("/signin", async (c) => {
 
   setSessionCookies(c, refreshToken);
 
-  const formattedUser = formatUser(user! as UserRow);
+  const formattedUser = formatUser(user! as UserRow, { includeEmail: true });
 
   return c.json({
     user: formattedUser,
@@ -256,7 +256,7 @@ authRoutes.post("/signup", async (c) => {
 
   setSessionCookies(c, refreshToken);
 
-  const formattedUser = formatUser(user as UserRow);
+  const formattedUser = formatUser(user as UserRow, { includeEmail: true });
 
   return c.json({
     user: formattedUser,

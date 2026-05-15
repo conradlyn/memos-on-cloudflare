@@ -5,7 +5,7 @@ import { Link, Navigate, useLocation, useParams } from "react-router-dom";
 import MemoCommentSection from "@/components/MemoCommentSection";
 import { MentionResolutionProvider } from "@/components/MemoContent/MentionResolutionContext";
 import { MemoDetailSidebar, MemoDetailSidebarDrawer } from "@/components/MemoDetailSidebar";
-import MemoView from "@/components/MemoView";
+import MemoView from "@/components/MemoView/MemoView";
 import MobileHeader from "@/components/MobileHeader";
 import { memoNamePrefix } from "@/helpers/resource-names";
 import useMediaQuery from "@/hooks/useMediaQuery";

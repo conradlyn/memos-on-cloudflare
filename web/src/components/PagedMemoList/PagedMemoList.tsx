@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowUpIcon } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MentionResolutionProvider } from "@/components/MemoContent/MentionResolutionContext";
 import { deriveDefaultCreateTimeFromFilters } from "@/components/MemoEditor/utils/deriveDefaultCreateTime";
 import { Button } from "@/components/ui/button";
@@ -13,9 +13,10 @@ import { State } from "@/types/proto/api/v1/common_pb";
 import type { Memo } from "@/types/proto/api/v1/memo_service_pb";
 import { useTranslate } from "@/utils/i18n";
 import Empty from "../Empty";
-import MemoEditor from "../MemoEditor";
 import MemoFilters from "../MemoFilters";
 import Skeleton from "../Skeleton";
+
+const MemoEditor = lazy(() => import("../MemoEditor"));
 
 interface Props {
   renderer: (memo: Memo) => JSX.Element;
@@ -157,12 +158,14 @@ const PagedMemoList = (props: Props) => {
         ) : (
           <>
             {showMemoEditor ? (
-              <MemoEditor
-                className="mb-2"
-                cacheKey="home-memo-editor"
-                placeholder={t("editor.any-thoughts")}
-                defaultCreateTime={defaultCreateTime}
-              />
+              <Suspense fallback={null}>
+                <MemoEditor
+                  className="mb-2"
+                  cacheKey="home-memo-editor"
+                  placeholder={t("editor.any-thoughts")}
+                  defaultCreateTime={defaultCreateTime}
+                />
+              </Suspense>
             ) : null}
             <MemoFilters />
             {sortedMemoList.map((memo) => props.renderer(memo))}

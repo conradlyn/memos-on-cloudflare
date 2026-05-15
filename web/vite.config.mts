@@ -1,7 +1,7 @@
+import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { resolve } from "path";
 import { defineConfig } from "vite";
-import tailwindcss from "@tailwindcss/vite";
 
 let devProxyServer = "http://localhost:8787";
 if (process.env.DEV_PROXY_SERVER && process.env.DEV_PROXY_SERVER.length > 0) {
@@ -50,6 +50,7 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
+          "router-vendor": ["react-router-dom"],
           "utils-vendor": ["dayjs", "lodash-es"],
           "mermaid-vendor": ["mermaid"],
           "leaflet-vendor": ["leaflet", "react-leaflet"],

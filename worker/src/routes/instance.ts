@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { Env, UserPayload } from "../types";
-import { authRequired } from "../middleware/auth";
+import { authOptional, authRequired } from "../middleware/auth";
 import * as settingDB from "../db/setting";
 import * as userDB from "../db/user";
 import { getAppVersion } from "../version";
@@ -9,6 +9,42 @@ import { deleteCachedKeys, getCachedJson, putCachedJson } from "../cache";
 type InstApp = { Bindings: Env; Variables: { user: UserPayload } };
 
 export const instanceRoutes = new Hono<InstApp>();
+
+const PUBLIC_INSTANCE_SETTING_KEYS = new Set(["GENERAL", "MEMO_RELATED", "TAGS", "AI"]);
+
+function getInstanceSettingKey(name: string): string {
+  return settingDB.normalizeInstanceSettingName(name).split("/").pop() || "";
+}
+
+function sanitizePublicInstanceSettingValue(name: string, value: string): string {
+  const key = getInstanceSettingKey(name);
+  if (key !== "AI") {
+    return value;
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    if (!parsed || typeof parsed !== "object") {
+      return "{}";
+    }
+
+    const next = {
+      ...parsed,
+      providers: Array.isArray((parsed as { providers?: unknown[] }).providers)
+        ? (parsed as { providers: Array<{ apiKeySet?: boolean; apiKeyHint?: string; [key: string]: unknown }> }).providers.map((provider) => ({
+            ...provider,
+            apiKey: "",
+            apiKeySet: Boolean(provider.apiKeySet || provider.apiKey),
+            apiKeyHint: provider.apiKeyHint || (provider.apiKeySet || provider.apiKey ? "configured" : ""),
+          }))
+        : [],
+    };
+
+    return JSON.stringify(next);
+  } catch {
+    return "{}";
+  }
+}
 
 // Get instance profile
 instanceRoutes.get("/profile", async (c) => {
@@ -64,7 +100,12 @@ instanceRoutes.get("/profile", async (c) => {
 });
 
 // List instance settings
-instanceRoutes.get("/settings", async (c) => {
+instanceRoutes.get("/settings", authRequired, async (c) => {
+  const currentUser = c.get("user");
+  if (currentUser.role !== "ADMIN") {
+    return c.json({ error: "Admin only" }, 403);
+  }
+
   const cached = await getCachedJson(c.env.CACHE, "instance:settings");
   if (cached) {
     return c.json(cached);
@@ -83,10 +124,17 @@ instanceRoutes.get("/settings", async (c) => {
 });
 
 // Get instance setting
-instanceRoutes.get("/settings/*", async (c) => {
+instanceRoutes.get("/settings/*", authOptional, async (c) => {
   const fullPath = c.req.path;
   const name = settingDB.normalizeInstanceSettingName(fullPath.replace("/api/v1/instance/settings/", ""));
-  const cacheKey = `instance:setting:${name}`;
+  const key = getInstanceSettingKey(name);
+  const currentUser = c.get("user");
+  const isAdmin = currentUser?.role === "ADMIN";
+  if (!PUBLIC_INSTANCE_SETTING_KEYS.has(key) && !isAdmin) {
+    return c.json({ error: "Admin only" }, 403);
+  }
+
+  const cacheKey = key === "AI" ? `instance:setting:${name}:${isAdmin ? "admin" : "public"}` : `instance:setting:${name}`;
   const cached = await getCachedJson(c.env.CACHE, cacheKey);
   if (cached) {
     return c.json(cached);
@@ -98,7 +146,10 @@ instanceRoutes.get("/settings/*", async (c) => {
     await putCachedJson(c.env.CACHE, cacheKey, response, 300);
     return c.json(response);
   }
-  const response = { name: setting.name, value: setting.value };
+  const response = {
+    name: setting.name,
+    value: PUBLIC_INSTANCE_SETTING_KEYS.has(key) && !isAdmin ? sanitizePublicInstanceSettingValue(key, setting.value) : setting.value,
+  };
   await putCachedJson(c.env.CACHE, cacheKey, response, 300);
   return c.json(response);
 });
@@ -169,12 +220,17 @@ instanceRoutes.patch("/settings/*", authRequired, async (c) => {
 
   const fullPath = c.req.path;
   const name = settingDB.normalizeInstanceSettingName(fullPath.replace("/api/v1/instance/settings/", ""));
+  const key = getInstanceSettingKey(name);
   const body = await c.req.json<{ value: string; description?: string }>();
   await settingDB.setSystemSetting(c.env.DB, name, body.value, body.description);
+  const settingCacheKeys =
+    key === "AI"
+      ? [`instance:setting:${name}:admin`, `instance:setting:${name}:public`]
+      : [`instance:setting:${name}`];
   await deleteCachedKeys(c.env.CACHE, [
     "instance:profile",
     "instance:settings",
-    `instance:setting:${name}`,
+    ...settingCacheKeys,
   ]);
   return c.json({ name, value: body.value });
 });

@@ -1,7 +1,6 @@
 import copy from "copy-to-clipboard";
-import hljs from "highlight.js";
 import { CheckIcon, CopyIcon } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 import { getThemeWithFallback, resolveTheme } from "@/utils/theme";
@@ -14,6 +13,24 @@ interface CodeBlockProps extends ReactMarkdownProps {
   className?: string;
 }
 
+const escapeHtml = (value: string): string =>
+  value.replace(/[&<>"']/g, (char) => {
+    switch (char) {
+      case "&":
+        return "&amp;";
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      case '"':
+        return "&quot;";
+      case "'":
+        return "&#39;";
+      default:
+        return char;
+    }
+  });
+
 export const CodeBlock = ({ children, className, node: _node, ...props }: CodeBlockProps) => {
   const { userGeneralSetting } = useAuth();
   const [copied, setCopied] = useState(false);
@@ -22,6 +39,7 @@ export const CodeBlock = ({ children, className, node: _node, ...props }: CodeBl
   const codeClassName = codeElement?.props?.className || "";
   const codeContent = extractCodeContent(children);
   const language = extractLanguage(codeClassName);
+  const [highlightedCode, setHighlightedCode] = useState(() => escapeHtml(codeContent));
 
   // If it's a mermaid block, render with MermaidBlock component
   if (language === "mermaid") {
@@ -65,23 +83,31 @@ export const CodeBlock = ({ children, className, node: _node, ...props }: CodeBl
     dynamicImportStyle();
   }, [resolvedTheme, isDarkTheme]);
 
-  // Highlight code using highlight.js
-  const highlightedCode = useMemo(() => {
-    try {
-      const lang = hljs.getLanguage(language);
-      if (lang) {
-        return hljs.highlight(codeContent, {
-          language: language,
-        }).value;
-      }
-    } catch {
-      // Skip error and use default highlighted code.
+  useEffect(() => {
+    let cancelled = false;
+    const fallback = escapeHtml(codeContent);
+
+    if (!language) {
+      setHighlightedCode(fallback);
+      return;
     }
 
-    // Escape any HTML entities when rendering original content.
-    return Object.assign(document.createElement("span"), {
-      textContent: codeContent,
-    }).innerHTML;
+    import("highlight.js/lib/common")
+      .then((module) => {
+        const hljs = module.default;
+        const lang = hljs.getLanguage(language);
+        return lang ? hljs.highlight(codeContent, { language }).value : fallback;
+      })
+      .catch(() => fallback)
+      .then((nextHighlightedCode) => {
+        if (!cancelled) {
+          setHighlightedCode(nextHighlightedCode);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [language, codeContent]);
 
   const handleCopy = async () => {

@@ -28,7 +28,7 @@ const getGeneralSetting = async (db: D1Database) => {
   }
 };
 
-export function formatUser(user: userDB.UserRow) {
+export function formatUser(user: userDB.UserRow, options: { includeEmail?: boolean } = {}) {
   return {
     name: `users/${user.username}`,
     id: user.id,
@@ -36,7 +36,7 @@ export function formatUser(user: userDB.UserRow) {
     role: user.role,
     displayName: user.nickname,
     nickname: user.nickname,
-    email: user.email,
+    email: options.includeEmail ? user.email : "",
     avatarUrl: user.avatar_url,
     description: user.description,
     rowStatus: user.row_status,
@@ -62,10 +62,38 @@ function formatPersonalAccessToken(username: string, token: {
   };
 }
 
+const USER_STATS_CACHE_SCOPES = ["public", "authenticated", "owner"] as const;
+
+function getUserStatsCacheKeys(username: string) {
+  return [
+    `user:stats:${username}`,
+    ...USER_STATS_CACHE_SCOPES.map((scope) => `user:stats:${username}:${scope}`),
+  ];
+}
+
+function getUserStatsVisibilityScope(targetUserId: number, currentUser: UserPayload | undefined) {
+  if (currentUser?.id === targetUserId) {
+    return "owner";
+  }
+  return currentUser ? "authenticated" : "public";
+}
+
+function appendStatsVisibilityFilter(conditions: string[], targetUserId: number, currentUser: UserPayload | undefined) {
+  const scope = getUserStatsVisibilityScope(targetUserId, currentUser);
+  if (scope === "public") {
+    conditions.push("visibility = 'PUBLIC'");
+  } else if (scope === "authenticated") {
+    conditions.push("visibility IN ('PUBLIC', 'PROTECTED')");
+  }
+  return scope;
+}
+
 // List users
 userRoutes.get("/", authOptional, async (c) => {
+  const currentUser = c.get("user");
+  const includeEmail = currentUser?.role === "ADMIN";
   const users = await userDB.listUsers(c.env.DB, { rowStatus: "NORMAL" });
-  return c.json({ users: users.map(formatUser), nextPageToken: "", totalSize: users.length });
+  return c.json({ users: users.map((user) => formatUser(user, { includeEmail })), nextPageToken: "", totalSize: users.length });
 });
 
 // Batch get users
@@ -77,25 +105,28 @@ userRoutes.post("/:batchGet", async (c) => {
   const users: userDB.UserRow[] = [];
   for (const username of body.usernames || []) {
     const user = await userDB.findUserByUsername(c.env.DB, username);
-    if (user) users.push(user);
+    if (user && user.row_status === "NORMAL") users.push(user);
   }
-  return c.json({ users: users.map(formatUser) });
+  return c.json({ users: users.map((user) => formatUser(user)) });
 });
 
 // Get user stats
 userRoutes.get("/:username/stats", authOptional, async (c) => {
   const username = c.req.param("username");
-  const cacheKey = `user:stats:${username}`;
-  const cached = await getCachedJson(c.env.CACHE, cacheKey);
+  const user = await userDB.findUserByUsername(c.env.DB, username);
+  if (!user) return c.json({ error: "User not found" }, 404);
+
+  const currentUser = c.get("user");
+  const conditions = ["creator_id = ?", "row_status = 'NORMAL'"];
+  const scope = appendStatsVisibilityFilter(conditions, user.id, currentUser);
+  const cacheKey = `user:stats:${username}:${scope}`;
+  const cached = scope === "owner" ? undefined : await getCachedJson(c.env.CACHE, cacheKey);
   if (cached) {
     return c.json(cached);
   }
 
-  const user = await userDB.findUserByUsername(c.env.DB, username);
-  if (!user) return c.json({ error: "User not found" }, 404);
-
   const { results: memos } = await c.env.DB.prepare(
-    "SELECT created_ts, payload, pinned FROM memo WHERE creator_id = ? AND row_status = 'NORMAL'"
+    `SELECT created_ts, payload, pinned FROM memo WHERE ${conditions.join(" AND ")}`
   ).bind(user.id).all<{ created_ts: number; payload: string; pinned: number }>();
 
   const tagCounts: Record<string, number> = {};
@@ -125,24 +156,26 @@ userRoutes.get("/:username/stats", authOptional, async (c) => {
     memoDisplayTimestamps: memos.map((m) => m.created_ts),
   };
 
-  await putCachedJson(c.env.CACHE, cacheKey, response, 60);
+  if (scope !== "owner") {
+    await putCachedJson(c.env.CACHE, cacheKey, response, 60);
+  }
   return c.json(response);
 });
 
 // Get all user stats
-userRoutes.get("/:action", async (c) => {
+userRoutes.get("/:action", authOptional, async (c) => {
   const action = c.req.param("action");
   if (action === "stats") {
-    const cached = await getCachedJson(c.env.CACHE, "user:stats:all");
+    const cached = await getCachedJson(c.env.CACHE, "user:stats:all:public");
     if (cached) {
       return c.json(cached);
     }
 
-    const users = await userDB.listUsers(c.env.DB);
+    const users = await userDB.listUsers(c.env.DB, { rowStatus: "NORMAL" });
     const stats = [];
     for (const user of users) {
       const { results: memos } = await c.env.DB.prepare(
-        "SELECT payload FROM memo WHERE creator_id = ? AND row_status = 'NORMAL'"
+        "SELECT payload FROM memo WHERE creator_id = ? AND row_status = 'NORMAL' AND visibility = 'PUBLIC'"
       ).bind(user.id).all<{ payload: string }>();
 
       const tagCount: Record<string, number> = {};
@@ -163,7 +196,7 @@ userRoutes.get("/:action", async (c) => {
       });
     }
     const response = { stats };
-    await putCachedJson(c.env.CACHE, "user:stats:all", response, 60);
+    await putCachedJson(c.env.CACHE, "user:stats:all:public", response, 60);
     return c.json(response);
   }
 
@@ -174,7 +207,11 @@ userRoutes.get("/:action", async (c) => {
     user = await c.env.DB.prepare("SELECT * FROM user WHERE id = ?").bind(Number(username)).first<userDB.UserRow>();
   }
   if (!user) return c.json({ error: "User not found" }, 404);
-  return c.json(formatUser(user));
+  const currentUser = c.get("user");
+  if (user.row_status !== "NORMAL" && currentUser?.id !== user.id && currentUser?.role !== "ADMIN") {
+    return c.json({ error: "User not found" }, 404);
+  }
+  return c.json(formatUser(user, { includeEmail: currentUser?.id === user.id || currentUser?.role === "ADMIN" }));
 });
 
 // Create user (admin, or self-registration when allowed)
@@ -194,8 +231,8 @@ userRoutes.post("/", async (c) => {
 
     const passwordHash = await hashPassword(password);
     const user = await userDB.createUser(c.env.DB, { username, passwordHash, role: "ADMIN" });
-    await deleteCachedKeys(c.env.CACHE, ["instance:profile", "user:stats:all"]);
-    return c.json(formatUser(user), 201);
+    await deleteCachedKeys(c.env.CACHE, ["instance:profile", "user:stats:all", "user:stats:all:public"]);
+    return c.json(formatUser(user, { includeEmail: true }), 201);
   }
 
   // Check if self-registration is allowed
@@ -236,9 +273,9 @@ userRoutes.post("/", async (c) => {
   const role = isAdmin && userData.role === 2 ? "ADMIN" : "USER";
   const passwordHash = await hashPassword(password);
   const user = await userDB.createUser(c.env.DB, { username, passwordHash, role });
-  await deleteCachedKeys(c.env.CACHE, ["instance:profile", "user:stats:all"]);
+  await deleteCachedKeys(c.env.CACHE, ["instance:profile", "user:stats:all", "user:stats:all:public"]);
 
-  return c.json(formatUser(user), 201);
+  return c.json(formatUser(user, { includeEmail: true }), 201);
 });
 
 // Update user
@@ -288,11 +325,12 @@ userRoutes.patch("/:username", authRequired, async (c) => {
   await deleteCachedKeys(c.env.CACHE, [
     "instance:profile",
     "user:stats:all",
-    `user:stats:${user.username}`,
-    `user:stats:${updated.username}`,
+    "user:stats:all:public",
+    ...getUserStatsCacheKeys(user.username),
+    ...getUserStatsCacheKeys(updated.username),
   ]);
 
-  return c.json(formatUser(updated));
+  return c.json(formatUser(updated, { includeEmail: true }));
 });
 
 // Delete user
@@ -308,7 +346,7 @@ userRoutes.delete("/:username", authRequired, async (c) => {
   if (!user) return c.json({ error: "User not found" }, 404);
 
   await userDB.deleteUser(c.env.DB, user.id);
-  await deleteCachedKeys(c.env.CACHE, ["instance:profile", "user:stats:all", `user:stats:${user.username}`]);
+  await deleteCachedKeys(c.env.CACHE, ["instance:profile", "user:stats:all", "user:stats:all:public", ...getUserStatsCacheKeys(user.username)]);
   return c.json({});
 });
 

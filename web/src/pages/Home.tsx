@@ -1,4 +1,4 @@
-import MemoView from "@/components/MemoView";
+import MemoView from "@/components/MemoView/MemoView";
 import PagedMemoList from "@/components/PagedMemoList";
 import { useInstance } from "@/contexts/InstanceContext";
 import { useMemoFilters, useMemoSorting } from "@/hooks";

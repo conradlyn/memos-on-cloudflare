@@ -44,10 +44,10 @@ export async function getShareByUid(
 export async function deleteShare(
   db: D1Database,
   uid: string,
-  creatorId: number
+  memoId: number
 ): Promise<void> {
   await db
-    .prepare("DELETE FROM memo_share WHERE uid = ? AND creator_id = ?")
-    .bind(uid, creatorId)
+    .prepare("DELETE FROM memo_share WHERE uid = ? AND memo_id = ?")
+    .bind(uid, memoId)
     .run();
 }
