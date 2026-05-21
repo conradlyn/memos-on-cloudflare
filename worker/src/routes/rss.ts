@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { Env } from "../types";
 import { findUserByUsername } from "../db/user";
 import * as memoDB from "../db/memo";
+import * as settingDB from "../db/setting";
 
 export const rssRoutes = new Hono<{ Bindings: Env }>();
 export const exploreRssRoutes = new Hono<{ Bindings: Env }>();
@@ -14,6 +15,21 @@ interface RssCreator {
 
 function getMemoTitle(content: string): string {
   return content.split("\n")[0]?.replace(/^#+\s*/, "").slice(0, 100) || "Untitled";
+}
+
+async function getInstanceTitle(db: D1Database): Promise<string> {
+  const setting = await settingDB.getInstanceSetting(db, "GENERAL");
+  if (!setting) {
+    return "Memos";
+  }
+
+  try {
+    const parsed = JSON.parse(setting.value) as { customProfile?: { title?: unknown } };
+    const title = typeof parsed.customProfile?.title === "string" ? parsed.customProfile.title.trim() : "";
+    return title || "Memos";
+  } catch {
+    return "Memos";
+  }
 }
 
 async function resolveCreators(db: D1Database, memos: memoDB.MemoRow[]): Promise<Map<number, RssCreator>> {
@@ -121,7 +137,7 @@ exploreRssRoutes.get("/rss.xml", async (c) => {
     </item>`;
   });
 
-  const instanceName = c.env.INSTANCE_NAME || "Memos";
+  const instanceName = await getInstanceTitle(c.env.DB);
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
