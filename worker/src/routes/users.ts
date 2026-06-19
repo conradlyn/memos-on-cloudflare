@@ -154,7 +154,7 @@ userRoutes.get("/:username/stats", authOptional, async (c) => {
     tagCount: tagCounts,
     memoTypeStats: { linkCount, codeCount, todoCount, undoCount },
     pinnedMemos,
-    memoDisplayTimestamps: memos.map((m) => m.created_ts),
+    memoCreatedTimestamps: memos.map((m) => ({ seconds: m.created_ts, nanos: 0 })),
   };
 
   if (scope !== "owner") {
