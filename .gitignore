@@ -5,3 +5,9 @@ dist/
 .env
 *.log
 .claude
+
+# macOS
+.DS_Store
+
+# 本地迁移数据（含生产数据库 memos_prod.db、用户列表、SQL 备份）——严禁提交
+migrate_from_memos/
