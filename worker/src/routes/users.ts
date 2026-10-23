@@ -12,6 +12,7 @@ import { createErrorBody } from "../error";
 import { buildIdentityProviderName, extractIdentityProviderUid } from "../idp";
 import { deleteCachedKeys, getCachedJson, putCachedJson } from "../cache";
 import { getWebhookUrlValidationError, normalizeWebhookUrl } from "../webhook";
+import { protoTimestamp } from "../time";
 
 type UserApp = { Bindings: Env; Variables: { user: UserPayload } };
 
@@ -44,8 +45,8 @@ export function formatUser(user: userDB.UserRow, options: { includeEmail?: boole
     // the user payload when only the legacy `rowStatus` field is present.
     state: user.row_status === "ARCHIVED" ? "ARCHIVED" : "NORMAL",
     rowStatus: user.row_status,
-    createTime: new Date(user.created_ts * 1000).toISOString(),
-    updateTime: new Date(user.updated_ts * 1000).toISOString(),
+    createTime: protoTimestamp(user.created_ts),
+    updateTime: protoTimestamp(user.updated_ts),
   };
 }
 
@@ -278,7 +279,7 @@ userRoutes.get("/:action", authOptional, async (c) => {
     const stats = await collectUserStats(c.env.DB, user, currentUser);
     const response = {
       name: `users/${user.username}`,
-      memoDisplayTimestamps: stats.createdTimestamps.map((ts) => new Date(ts * 1000).toISOString()),
+      memoDisplayTimestamps: stats.createdTimestamps.map((ts) => protoTimestamp(ts)),
       memoTypeStats: stats.memoTypeStats,
       tagCount: stats.tagCount,
       pinnedMemos: stats.pinnedMemoNames,
@@ -809,8 +810,8 @@ function formatWebhook(webhook: webhookDB.WebhookRow, username: string) {
     name: `users/${username}/webhooks/${webhook.id}`,
     url: webhook.url,
     displayName: webhook.display_name,
-    createTime: new Date(webhook.created_ts * 1000).toISOString(),
-    updateTime: new Date(webhook.updated_ts * 1000).toISOString(),
+    createTime: protoTimestamp(webhook.created_ts),
+    updateTime: protoTimestamp(webhook.updated_ts),
   };
 }
 

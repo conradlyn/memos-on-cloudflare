@@ -221,6 +221,9 @@ npm run dev:web
 | 创建类接口 | `CreateMemo`/`CreateComment`/`CreateAttachment` 一律返回 `200`，返回 `201` 会被判为未文档化状态码 |
 | `UserStats` | 路径为 `/api/v1/users/{user}:getStats`（自定义动词后缀），`pinnedMemos` 为资源名字符串数组 |
 | `MemoRelation` | 返回 `{memo:{name,snippet}, relatedMemo:{...}, type}`，而非数据库原始行 |
+| 时间戳格式 | 所有 `date-time` 字段必须是**整秒** RFC 3339（`2026-08-02T01:11:30Z`），**不能带毫秒**（`...30.000Z`）。Swift 客户端的 `ISO8601DateFormatter()` 默认不含 `.withFractionalSeconds`，遇到毫秒直接返回 `nil`，解码抛错。统一走 `worker/src/time.ts` 的 `protoTimestamp()` |
+
+> 最后一条是最容易踩的坑：JSON 完全合法、字段类型全对，但客户端仍报「未能读取数据，因为它的格式不正确」。原因是 `Date#toISOString()` 永远输出 `.000Z`，而原版 Memos（Go protojson）输出的是不带小数的 `Z`。
 
 ## 功能特性
 

@@ -4,6 +4,7 @@ import { authOptional, authRequired } from "../middleware/auth";
 import * as settingDB from "../db/setting";
 import { createErrorBody } from "../error";
 import { deleteCachedKeys } from "../cache";
+import { protoTimestamp } from "../time";
 
 type AttApp = { Bindings: Env; Variables: { user: UserPayload } };
 
@@ -32,8 +33,8 @@ function formatAttachment(att: AttachmentRow) {
     name: `attachments/${att.uid}`,
     uid: att.uid,
     creatorId: att.creator_id,
-    createTime: new Date(att.created_ts * 1000).toISOString(),
-    updateTime: new Date(att.updated_ts * 1000).toISOString(),
+    createTime: protoTimestamp(att.created_ts),
+    updateTime: protoTimestamp(att.updated_ts),
     filename: att.filename,
     type: att.type,
     // Memos v1 encodes int64 as a JSON string; native clients decode it as String.

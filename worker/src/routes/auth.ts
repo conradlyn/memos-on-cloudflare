@@ -10,6 +10,7 @@ import type { UserRow } from "../db/user";
 import * as settingDB from "../db/setting";
 import { createErrorBody } from "../error";
 import { extractIdentityProviderUid } from "../idp";
+import { protoTimestamp } from "../time";
 import { formatUser } from "./users";
 
 type AuthApp = { Bindings: Env; Variables: { user: UserPayload } };
@@ -57,7 +58,7 @@ const getGeneralSetting = async (db: D1Database) => {
 };
 
 function toISODateTime(seconds: number): string {
-  return new Date(seconds * 1000).toISOString();
+  return protoTimestamp(seconds);
 }
 
 async function buildCurrentUserResponse(db: D1Database, userId: number) {

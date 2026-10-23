@@ -10,6 +10,7 @@ import { createErrorBody } from "../error";
 import { deleteCachedKeys, getCachedJson, putCachedJson, sha256Hex } from "../cache";
 import { buildMemoFilterWhere, MemoFilterError } from "../filter/memo-filter";
 import { deliverMemoWebhookEvent, getWebhookActor, type MemoWebhookEventType } from "../webhook";
+import { protoTimestamp } from "../time";
 
 type MemoApp = { Bindings: Env; Variables: { user: UserPayload } };
 type MemoContext = Context<MemoApp>;
@@ -136,8 +137,8 @@ function formatMemo(memo: memoDB.MemoRow, creatorUsername?: string) {
   return {
     name: `memos/${memo.uid}`,
     creator: `users/${creatorUsername || memo.creator_id}`,
-    createTime: new Date(memo.created_ts * 1000).toISOString(),
-    updateTime: new Date(memo.updated_ts * 1000).toISOString(),
+    createTime: protoTimestamp(memo.created_ts),
+    updateTime: protoTimestamp(memo.updated_ts),
     state: memo.row_status === "ARCHIVED" ? "ARCHIVED" : "NORMAL",
     content: memo.content,
     visibility: memo.visibility,
@@ -188,8 +189,8 @@ async function getMemoAttachments(db: D1Database, memoId: number, memoUid: strin
     id: att.id,
     name: `attachments/${att.uid}`,
     uid: att.uid,
-    createTime: new Date(att.created_ts * 1000).toISOString(),
-    updateTime: new Date((att.updated_ts || att.created_ts) * 1000).toISOString(),
+    createTime: protoTimestamp(att.created_ts),
+    updateTime: protoTimestamp(att.updated_ts || att.created_ts),
     filename: att.filename,
     type: att.type,
     // Memos v1 encodes int64 as a JSON string; native clients decode it as String.
@@ -228,7 +229,7 @@ function formatReaction(reaction: reactionDB.ReactionRow, creatorUsername?: stri
     creator: `users/${creatorUsername || reaction.creator_id}`,
     contentId: reaction.content_id,
     reactionType: reaction.reaction_type,
-    createTime: new Date(reaction.created_ts * 1000).toISOString(),
+    createTime: protoTimestamp(reaction.created_ts),
   };
 }
 
@@ -259,8 +260,8 @@ function formatShare(share: shareDB.ShareRow, memoUid: string) {
   return {
     name: `memos/${memoUid}/shares/${share.uid}`,
     uid: share.uid,
-    createTime: new Date(share.created_ts * 1000).toISOString(),
-    expireTime: share.expires_ts ? new Date(share.expires_ts * 1000).toISOString() : null,
+    createTime: protoTimestamp(share.created_ts),
+    expireTime: share.expires_ts ? protoTimestamp(share.expires_ts) : null,
   };
 }
 
@@ -381,8 +382,8 @@ async function enrichMemos(db: D1Database, memos: memoDB.MemoRow[], creatorUsern
       id: att.id,
       name: `attachments/${att.uid}`,
       uid: att.uid,
-      createTime: new Date(att.created_ts * 1000).toISOString(),
-      updateTime: new Date((att.updated_ts || att.created_ts) * 1000).toISOString(),
+      createTime: protoTimestamp(att.created_ts),
+      updateTime: protoTimestamp(att.updated_ts || att.created_ts),
       filename: att.filename,
       type: att.type,
       // Memos v1 encodes int64 as a JSON string; native clients decode it as String.
