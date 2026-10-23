@@ -6,7 +6,9 @@
     "dev": "wrangler dev",
     "dev:web": "cd web && npm run dev",
     "build:web": "cd web && npm run build",
+    "build:ci": "npm ci --include=dev && cd web && npm ci --include=dev && npm run build",
     "deploy": "npm run build:web && wrangler deploy",
+    "deploy:ci": "wrangler deploy --var \"APP_VERSION:$(node scripts/fetch-github-version.mjs --plain)\"",
     "db:migrate": "wrangler d1 migrations apply cfmemos-db --local",
     "db:migrate:remote": "wrangler d1 migrations apply cfmemos-db --remote"
   },

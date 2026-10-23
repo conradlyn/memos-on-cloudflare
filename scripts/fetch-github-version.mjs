@@ -56,7 +56,13 @@ async function resolveVersion() {
 
 const version = await resolveVersion();
 
-console.log(`Resolved app version: ${version}`);
+// `--plain` prints only the version so it can be consumed by a shell command
+// substitution (Cloudflare Workers Builds deploy command).
+if (process.argv.includes("--plain")) {
+  process.stdout.write(`${version}\n`);
+} else {
+  console.log(`Resolved app version: ${version}`);
+}
 
 if (process.env.GITHUB_OUTPUT) {
   appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\n`);

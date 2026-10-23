@@ -84,6 +84,36 @@ npm run deploy
 
 部署完成后，访问 Workers 分配的域名，首次访问会进入管理员注册页面。
 
+## Git 自动部署（推荐：Cloudflare Workers Builds）
+
+Cloudflare 原生支持把 Worker 连接到 GitHub 仓库，**推送即构建部署**。相比 GitHub Actions，它不需要在 GitHub 侧启用工作流（fork 仓库默认不运行 Actions），也不需要在 GitHub 配置 Cloudflare 凭据。
+
+### 连接步骤
+
+1. Dashboard → **Workers & Pages** → 选择已存在的 Worker（名称必须是 `cfmemos`，需与 `wrangler.toml` 的 `name` 一致）→ **Settings → Builds → Connect**
+2. 授权 GitHub，选择仓库与生产分支 `main`
+3. 填写构建配置：
+
+| 配置项 | 值 |
+|--------|-----|
+| Build command | `npm run build:ci` |
+| Deploy command | `npm run deploy:ci` |
+| Root directory | 留空（仓库根目录） |
+| Build variables | `NODE_VERSION=22` |
+
+4. 保存后推一次提交，或在 **Deployments → View build history** 中 Retry 触发首次构建。
+
+### 为什么需要 `build:ci`
+
+`web/` 是独立子包，根目录的依赖安装不会带入前端依赖，因此 `build:ci` 先安装两级依赖再执行 `vite build`；`--include=dev` 确保 `NODE_ENV=production` 环境下构建工具链（`vite` 等在 `devDependencies`）不会被跳过。`deploy:ci` 会在部署前解析上游最新版本号并注入 `APP_VERSION`。
+
+### 注意事项
+
+- **D1 迁移不会自动执行**：Workers Builds 自动生成的 API Token 只含 Workers Scripts / KV / R2 权限，没有 D1 编辑权限。新增 migration 时需本地执行 `npm run db:migrate:remote`；若希望 CI 内执行，需在 Builds 设置里改用带 **D1:Edit** 的自定义 Token，并把 Deploy command 改为 `npx wrangler d1 migrations apply cfmemos-db --remote && npm run deploy:ci`
+- **运行时变量以 `wrangler.toml` 为准**：`INSTANCE_NAME` / `APP_VERSION` / `MEMOS_COMPAT_VERSION` 由配置文件下发；`JWT_SECRET` 属于 secret，用 `wrangler secret put` 设置后不会被部署覆盖
+- 非 `main` 分支默认走 Preview 构建（`npx wrangler preview`），不影响生产
+- **与 GitHub Actions 二选一**，同时启用会导致同一次推送部署两次
+
 ## GitHub Actions 自动部署
 
 推送到 `main` 分支会自动触发部署。需要在 GitHub 仓库 Settings → Secrets and variables → Actions 中添加：
@@ -94,6 +124,8 @@ npm run deploy
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare Account ID（在 Dashboard 右侧栏可找到） |
 
 工作流会自动完成：安装依赖 → 构建前端 → 执行数据库迁移 → 部署 Worker。
+
+> fork 仓库的 Actions 默认不会运行，需先在仓库 **Actions** 页面点击启用工作流，之后可用 **Run workflow** 手动触发（`workflow_dispatch`）。
 
 ## 本地开发
 
