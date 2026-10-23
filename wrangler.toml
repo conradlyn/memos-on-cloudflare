@@ -28,7 +28,7 @@ bucket_name = "cfmemos"
 # Then uncomment this block and replace the id.
 # [[kv_namespaces]]
 # binding = "CACHE"
-# id = "3b729feb97144c19b86bcde13be655e7"
+# id = "<your-kv-namespace-id>"
 
 # [ai]
 # binding = "AI"
