@@ -192,7 +192,8 @@ async function getMemoAttachments(db: D1Database, memoId: number, memoUid: strin
     updateTime: new Date((att.updated_ts || att.created_ts) * 1000).toISOString(),
     filename: att.filename,
     type: att.type,
-    size: att.size,
+    // Memos v1 encodes int64 as a JSON string; native clients decode it as String.
+    size: String(att.size),
     memo: `memos/${memoUid}`,
     externalLink: "",
     motionMedia: (() => {
@@ -384,7 +385,8 @@ async function enrichMemos(db: D1Database, memos: memoDB.MemoRow[], creatorUsern
       updateTime: new Date((att.updated_ts || att.created_ts) * 1000).toISOString(),
       filename: att.filename,
       type: att.type,
-      size: att.size,
+      // Memos v1 encodes int64 as a JSON string; native clients decode it as String.
+      size: String(att.size),
       memo: `memos/${memoUid}`,
       externalLink: "",
       motionMedia: (() => {
@@ -640,7 +642,8 @@ memoRoutes.post("/", authRequired, async (c) => {
   await invalidateMemoDerivedCaches(c.env.CACHE, [user.username]);
   const enrichedMemo = await enrichMemo(c.env.DB, memo, user.username, user);
   enqueueMemoWebhook(c, "memo.created", memo.creator_id, enrichedMemo, user);
-  return c.json(enrichedMemo, 201);
+  // Memos v1 documents 200 for CreateMemo; native clients treat 201 as undocumented.
+  return c.json(enrichedMemo);
 });
 
 // List memos
@@ -831,18 +834,8 @@ memoRoutes.get("/:id/relations", authOptional, async (c) => {
     return c.json({ error: getMemoReadErrorMessage(deniedStatus) }, deniedStatus);
   }
 
-  const relations = await relationDB.listRelations(c.env.DB, memo.id);
-  const otherMemoIds = relations.map((relation) => relation.memo_id === memo.id ? relation.related_memo_id : relation.memo_id);
-  const otherMemoMap = await getMemoSnippetMapByIds(c.env.DB, otherMemoIds);
-  const visibleRelations: relationDB.RelationRow[] = [];
-  for (const relation of relations) {
-    const otherMemoId = relation.memo_id === memo.id ? relation.related_memo_id : relation.memo_id;
-    const otherMemo = otherMemoMap.get(otherMemoId);
-    if (!otherMemo || !getMemoReadDeniedStatus(otherMemo, user)) {
-      visibleRelations.push(relation);
-    }
-  }
-  return c.json({ relations: visibleRelations });
+  const relations = await getMemoRelations(c.env.DB, memo.id, user);
+  return c.json({ relations });
 });
 
 memoRoutes.patch("/:id/relations", authRequired, async (c) => {
@@ -858,8 +851,7 @@ memoRoutes.patch("/:id/relations", authRequired, async (c) => {
 
   const body = await c.req.json<{ relations: { relatedMemoId: number; type: string }[] }>();
   await relationDB.setRelations(c.env.DB, memo.id, body.relations || []);
-  const relations = await relationDB.listRelations(c.env.DB, memo.id);
-  return c.json({ relations });
+  return c.json({ relations: await getMemoRelations(c.env.DB, memo.id, user) });
 });
 
 // --- Memo Comments ---
@@ -919,7 +911,7 @@ memoRoutes.post("/:id/comments", authRequired, async (c) => {
   await invalidateMemoDerivedCaches(c.env.CACHE, [user.username]);
   const enrichedComment = await enrichMemo(c.env.DB, comment, user.username, user);
   enqueueMemoWebhook(c, "memo.created", comment.creator_id, enrichedComment, user);
-  return c.json(enrichedComment, 201);
+  return c.json(enrichedComment);
 });
 
 memoRoutes.get("/:id/comments", authOptional, async (c) => {

@@ -602,7 +602,15 @@ async function resolveCreatorId(db: D1Database, value: string): Promise<number |
     return undefined;
   }
   const user = await findUserByUsername(db, username);
-  return user?.id;
+  if (user) {
+    return user.id;
+  }
+  // Clients that follow the upstream Memos resource naming send `users/{id}`.
+  if (/^\d+$/.test(username)) {
+    const byId = await db.prepare("SELECT id FROM user WHERE id = ?").bind(Number(username)).first<{ id: number }>();
+    return byId?.id;
+  }
+  return undefined;
 }
 
 class SqlCompiler {

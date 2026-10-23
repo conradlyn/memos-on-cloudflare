@@ -40,7 +40,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Deploy Worker
-        run: npx wrangler deploy --keep-vars --var "APP_VERSION:${{ steps.repository_version.outputs.version }}"
+        run: npx wrangler deploy --keep-vars --var "APP_VERSION:${{ steps.repository_version.outputs.version }}" --var "MEMOS_COMPAT_VERSION:0.28.0"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

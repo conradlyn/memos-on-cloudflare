@@ -5,6 +5,7 @@ dist/
 .env
 *.log
 .claude
+.workbuddy-ai/
 
 # macOS
 .DS_Store

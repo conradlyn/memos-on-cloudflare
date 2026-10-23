@@ -11,6 +11,8 @@ run_worker_first = ["/api/*", "/file/*", "/u/*", "/explore/rss.xml"]
 [vars]
 INSTANCE_NAME = "cfmemos"
 APP_VERSION = "1.0.0"
+# Memos 版本号，供 MoeMemos 等原生客户端做兼容性校验（MoeMemos 2.x 支持 0.27.0 ~ 0.31.0）
+MEMOS_COMPAT_VERSION = "0.28.0"
 
 [[d1_databases]]
 binding = "DB"

@@ -36,7 +36,8 @@ function formatAttachment(att: AttachmentRow) {
     updateTime: new Date(att.updated_ts * 1000).toISOString(),
     filename: att.filename,
     type: att.type,
-    size: att.size,
+    // Memos v1 encodes int64 as a JSON string; native clients decode it as String.
+    size: String(att.size),
     memoId: att.memo_id,
     storageType: att.storage_type,
     reference: att.reference,
@@ -233,7 +234,7 @@ attachmentRoutes.post("/", authRequired, async (c) => {
     .first<AttachmentRow>();
 
   await deleteCachedKeys(c.env.CACHE, ["instance:stats"]);
-  return c.json(formatAttachment(att!), 201);
+  return c.json(formatAttachment(att!));
 });
 
 // List attachments

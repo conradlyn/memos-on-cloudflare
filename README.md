@@ -151,6 +151,8 @@ npm run dev:web
 |------|------|------|
 | `JWT_SECRET` | JWT 签名密钥，生产环境必须使用强随机字符串 | 是 |
 | `INSTANCE_NAME` | 实例名称，显示在页面标题 | 否 |
+| `APP_VERSION` | 本项目版本号，随 `/api/v1/instance/profile` 的 `appVersion` 字段返回 | 否 |
+| `MEMOS_COMPAT_VERSION` | 向 API 客户端通告的 Memos 版本号，默认 `0.28.0`（设置页显示的「版本」即此值） | 否 |
 
 生产环境通过 `wrangler secret put` 设置敏感变量，非敏感变量在 `wrangler.toml` 的 `[vars]` 中配置。
 
@@ -169,6 +171,24 @@ npm run dev:web
 
 1. Workers & Pages → cfmemos → Settings → Domains & Routes
 2. 添加自定义域名（需要域名已在 Cloudflare DNS 中）
+
+## 原生客户端兼容性
+
+本项目对外提供 Memos v1 REST API，可被 [MoeMemos](https://github.com/mudkipme/MoeMemos) 等原生客户端直接连接。
+
+- **服务地址**：填写 Worker 域名（如 `https://memos.example.com`），**不要**带 `/api/v1` 后缀
+- **访问令牌**：在「设置 → 访问令牌」中创建，形如 `memos_pat_xxx`；不要使用网页登录的 JWT（15 分钟即过期）
+- **版本协商**：`/api/v1/instance/profile` 的 `version` 字段返回 `MEMOS_COMPAT_VERSION`（默认 `0.28.0`）。MoeMemos 2.x 支持 v1 服务端 `0.27.0 ~ 0.31.0`，若该值超出范围，客户端会提示「服务器版本不受支持」或要求二次确认，因此**不要**把它设为 `APP_VERSION`（如 `1.0.0`）
+
+接口契约按 MoeMemos 生成客户端所用的 OpenAPI 规范实现，涉及以下易错点：
+
+| 约束 | 说明 |
+|------|------|
+| `User.state` | 必填枚举（`NORMAL`/`ARCHIVED`），仅返回 `rowStatus` 会导致客户端解码失败 |
+| `Attachment.size` | int64，必须以**字符串**返回（`"70"` 而非 `70`） |
+| 创建类接口 | `CreateMemo`/`CreateComment`/`CreateAttachment` 一律返回 `200`，返回 `201` 会被判为未文档化状态码 |
+| `UserStats` | 路径为 `/api/v1/users/{user}:getStats`（自定义动词后缀），`pinnedMemos` 为资源名字符串数组 |
+| `MemoRelation` | 返回 `{memo:{name,snippet}, relatedMemo:{...}, type}`，而非数据库原始行 |
 
 ## 功能特性
 

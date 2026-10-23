@@ -7,6 +7,8 @@ export interface Env {
   JWT_SECRET: string;
   INSTANCE_NAME: string;
   APP_VERSION: string;
+  /** Memos server version advertised to API clients; defaults to 0.28.0 when unset. */
+  MEMOS_COMPAT_VERSION?: string;
 }
 
 export interface UserPayload {

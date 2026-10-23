@@ -40,10 +40,25 @@ export function formatUser(user: userDB.UserRow, options: { includeEmail?: boole
     email: options.includeEmail ? user.email : "",
     avatarUrl: user.avatar_url,
     description: user.description,
+    // Memos v1 API requires `state`; native clients (MoeMemos, etc.) fail to decode
+    // the user payload when only the legacy `rowStatus` field is present.
+    state: user.row_status === "ARCHIVED" ? "ARCHIVED" : "NORMAL",
     rowStatus: user.row_status,
     createTime: new Date(user.created_ts * 1000).toISOString(),
     updateTime: new Date(user.updated_ts * 1000).toISOString(),
   };
+}
+
+/** Resolves a user by username, falling back to a numeric primary key. */
+async function resolveUserByToken(db: D1Database, token: string): Promise<userDB.UserRow | null> {
+  const byName = await userDB.findUserByUsername(db, token);
+  if (byName) {
+    return byName;
+  }
+  if (/^\d+$/.test(token)) {
+    return db.prepare("SELECT * FROM user WHERE id = ?").bind(Number(token)).first<userDB.UserRow>();
+  }
+  return null;
 }
 
 function formatPersonalAccessToken(username: string, token: {
@@ -107,51 +122,92 @@ userRoutes.post("/:batchGet", async (c) => {
   return c.json({ users: users.map((user) => formatUser(user)) });
 });
 
-// Get user stats
-userRoutes.get("/:username/stats", authOptional, async (c) => {
-  const username = c.req.param("username");
-  const user = await userDB.findUserByUsername(c.env.DB, username);
-  if (!user) return c.json({ error: "User not found" }, 404);
+type UserStatsSnapshot = {
+  username: string;
+  scope: string;
+  memoCount: number;
+  tagCount: Record<string, number>;
+  memoTypeStats: { linkCount: number; codeCount: number; todoCount: number; undoCount: number };
+  pinnedMemoNames: string[];
+  pinnedTimestamps: number[];
+  createdTimestamps: number[];
+  updatedTimestamps: number[];
+};
 
-  const currentUser = c.get("user");
+async function collectUserStats(
+  db: D1Database,
+  user: userDB.UserRow,
+  currentUser: UserPayload | undefined,
+): Promise<UserStatsSnapshot> {
   const conditions = ["creator_id = ?", "row_status = 'NORMAL'"];
   const scope = appendStatsVisibilityFilter(conditions, user.id, currentUser);
-  const cacheKey = `user:stats:${username}:${scope}`;
-  const cached = scope === "owner" ? undefined : await getCachedJson(c.env.CACHE, cacheKey);
-  if (cached) {
-    return c.json(cached);
-  }
 
-  const { results: memos } = await c.env.DB.prepare(
-    `SELECT created_ts, updated_ts, payload, pinned FROM memo WHERE ${conditions.join(" AND ")}`
-  ).bind(user.id).all<{ created_ts: number; updated_ts: number; payload: string; pinned: number }>();
+  const { results: memos } = await db.prepare(
+    `SELECT uid, created_ts, updated_ts, payload, pinned FROM memo WHERE ${conditions.join(" AND ")}`
+  ).bind(user.id).all<{ uid: string; created_ts: number; updated_ts: number; payload: string; pinned: number }>();
 
-  const tagCounts: Record<string, number> = {};
+  const tagCount: Record<string, number> = {};
   let linkCount = 0, codeCount = 0, todoCount = 0, undoCount = 0;
-  const pinnedMemos: number[] = [];
+  const pinnedMemoNames: string[] = [];
+  const pinnedTimestamps: number[] = [];
 
-  for (const m of memos) {
-    const payload = JSON.parse(m.payload || "{}");
-    if (payload.tags) {
+  for (const memo of memos) {
+    let payload: any = {};
+    try {
+      payload = JSON.parse(memo.payload || "{}");
+    } catch {
+      payload = {};
+    }
+    if (Array.isArray(payload.tags)) {
       for (const tag of payload.tags) {
-        tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+        tagCount[tag] = (tagCount[tag] || 0) + 1;
       }
     }
     if (payload.property?.hasLink) linkCount++;
     if (payload.property?.hasCode) codeCount++;
     if (payload.property?.hasTaskList) todoCount++;
     if (payload.property?.hasIncompleteTask) undoCount++;
-    if (m.pinned) pinnedMemos.push(m.created_ts);
+    if (memo.pinned) {
+      pinnedMemoNames.push(`memos/${memo.uid}`);
+      pinnedTimestamps.push(memo.created_ts);
+    }
   }
 
-  const response = {
-    name: `users/${username}/stats`,
+  return {
+    username: user.username,
+    scope,
     memoCount: memos.length,
-    tagCount: tagCounts,
+    tagCount,
     memoTypeStats: { linkCount, codeCount, todoCount, undoCount },
-    pinnedMemos,
-    memoCreatedTimestamps: memos.map((m) => ({ seconds: m.created_ts, nanos: 0 })),
-    memoUpdatedTimestamps: memos.map((m) => ({ seconds: m.updated_ts, nanos: 0 })),
+    pinnedMemoNames,
+    pinnedTimestamps,
+    createdTimestamps: memos.map((memo) => memo.created_ts),
+    updatedTimestamps: memos.map((memo) => memo.updated_ts),
+  };
+}
+
+// Get user stats (legacy shape consumed by the bundled web client)
+userRoutes.get("/:username/stats", authOptional, async (c) => {
+  const user = await resolveUserByToken(c.env.DB, c.req.param("username"));
+  if (!user) return c.json({ error: "User not found" }, 404);
+
+  const currentUser = c.get("user");
+  const scope = getUserStatsVisibilityScope(user.id, currentUser);
+  const cacheKey = `user:stats:${user.username}:${scope}`;
+  const cached = scope === "owner" ? undefined : await getCachedJson(c.env.CACHE, cacheKey);
+  if (cached) {
+    return c.json(cached);
+  }
+
+  const stats = await collectUserStats(c.env.DB, user, currentUser);
+  const response = {
+    name: `users/${user.username}/stats`,
+    memoCount: stats.memoCount,
+    tagCount: stats.tagCount,
+    memoTypeStats: stats.memoTypeStats,
+    pinnedMemos: stats.pinnedTimestamps,
+    memoCreatedTimestamps: stats.createdTimestamps.map((ts) => ({ seconds: ts, nanos: 0 })),
+    memoUpdatedTimestamps: stats.updatedTimestamps.map((ts) => ({ seconds: ts, nanos: 0 })),
   };
 
   if (scope !== "owner") {
@@ -201,12 +257,42 @@ userRoutes.get("/:action", authOptional, async (c) => {
     return c.json(response);
   }
 
-  // Get user by username (or numeric ID as fallback)
-  const username = action;
-  let user = await userDB.findUserByUsername(c.env.DB, username);
-  if (!user && /^\d+$/.test(username)) {
-    user = await c.env.DB.prepare("SELECT * FROM user WHERE id = ?").bind(Number(username)).first<userDB.UserRow>();
+  // Memos v1 custom verb: GET /api/v1/users/{user}:getStats
+  // Native clients (MoeMemos 2.x) call this path instead of /users/{user}/stats.
+  if (action.endsWith(":getStats")) {
+    const user = await resolveUserByToken(c.env.DB, action.slice(0, -":getStats".length));
+    if (!user) return c.json({ error: "User not found" }, 404);
+
+    const currentUser = c.get("user");
+    if (user.row_status !== "NORMAL" && currentUser?.id !== user.id && currentUser?.role !== "ADMIN") {
+      return c.json({ error: "User not found" }, 404);
+    }
+
+    const scope = getUserStatsVisibilityScope(user.id, currentUser);
+    const cacheKey = `user:stats:v1:${user.username}:${scope}`;
+    const cached = scope === "owner" ? undefined : await getCachedJson(c.env.CACHE, cacheKey);
+    if (cached) {
+      return c.json(cached);
+    }
+
+    const stats = await collectUserStats(c.env.DB, user, currentUser);
+    const response = {
+      name: `users/${user.username}`,
+      memoDisplayTimestamps: stats.createdTimestamps.map((ts) => new Date(ts * 1000).toISOString()),
+      memoTypeStats: stats.memoTypeStats,
+      tagCount: stats.tagCount,
+      pinnedMemos: stats.pinnedMemoNames,
+      totalMemoCount: stats.memoCount,
+    };
+
+    if (scope !== "owner") {
+      await putCachedJson(c.env.CACHE, cacheKey, response, 60);
+    }
+    return c.json(response);
   }
+
+  // Get user by username (or numeric ID as fallback)
+  const user = await resolveUserByToken(c.env.DB, action);
   if (!user) return c.json({ error: "User not found" }, 404);
   const currentUser = c.get("user");
   if (user.row_status !== "NORMAL" && currentUser?.id !== user.id && currentUser?.role !== "ADMIN") {
@@ -365,48 +451,94 @@ userRoutes.get("/:username/settings", authRequired, async (c) => {
   return c.json({ settings });
 });
 
+function parseSettingValue(raw: string | undefined | null): Record<string, any> {
+  if (!raw) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Builds a user setting payload that satisfies both contracts:
+ * - Memos v1 (`{ name, generalSetting: { memoVisibility, locale, theme } }`), used by
+ *   native clients such as MoeMemos.
+ * - The legacy `{ setting: { key, value } }` shape consumed by the bundled web client.
+ */
+function formatUserSetting(username: string, key: string, setting: { key: string; value: string } | null | undefined) {
+  const value = setting?.value || "";
+  const parsed = parseSettingValue(value);
+  const isGeneral = key.toUpperCase() === "GENERAL";
+  const generalSetting = isGeneral
+    ? {
+        locale: parsed.locale,
+        memoVisibility: parsed.memoVisibility ?? parsed.generalSetting?.memoVisibility,
+        theme: parsed.theme,
+      }
+    : undefined;
+
+  return {
+    name: `users/${username}/settings/${key}`,
+    ...(generalSetting ? { generalSetting } : {}),
+    setting: setting || { key, value: "" },
+  };
+}
+
 userRoutes.get("/:username/settings/:key", authRequired, async (c) => {
-  const username = c.req.param("username");
   const key = c.req.param("key");
   const currentUser = c.get("user");
-  const user = await userDB.findUserByUsername(c.env.DB, username);
+  const user = await resolveUserByToken(c.env.DB, c.req.param("username"));
   if (!user) return c.json({ error: "User not found" }, 404);
   if (user.id !== currentUser.id && currentUser.role !== "ADMIN") {
     return c.json({ error: "Permission denied" }, 403);
   }
 
   const setting = await settingDB.getUserSetting(c.env.DB, user.id, key);
-  return c.json({ setting: setting || { key, value: "" } });
+  return c.json(formatUserSetting(user.username, key, setting));
 });
 
 userRoutes.patch("/:username/settings/:key", authRequired, async (c) => {
-  const username = c.req.param("username");
   const key = c.req.param("key");
   const currentUser = c.get("user");
-  const user = await userDB.findUserByUsername(c.env.DB, username);
+  const user = await resolveUserByToken(c.env.DB, c.req.param("username"));
   if (!user) return c.json({ error: "User not found" }, 404);
   if (user.id !== currentUser.id && currentUser.role !== "ADMIN") {
     return c.json({ error: "Permission denied" }, 403);
   }
 
-  const body = await c.req.json<{ value: any }>();
-  const newValue = typeof body.value === "string" ? JSON.parse(body.value) : (body.value || {});
+  const body = await c.req.json<{ value?: any; generalSetting?: any }>();
+  let newValue: any;
+  if (body.value !== undefined) {
+    if (typeof body.value === "string") {
+      try {
+        newValue = JSON.parse(body.value);
+      } catch {
+        newValue = {};
+      }
+    } else {
+      newValue = body.value || {};
+    }
+  } else if (body.generalSetting !== undefined) {
+    newValue = body.generalSetting || {};
+  } else {
+    newValue = {};
+  }
 
   // Merge with existing setting value
   const existing = await settingDB.getUserSetting(c.env.DB, user.id, key);
   let merged = newValue;
   if (existing) {
-    try {
-      const existingValue = JSON.parse(existing.value);
-      merged = { ...existingValue, ...newValue };
-    } catch {
-      merged = newValue;
-    }
+    const existingValue = parseSettingValue(existing.value);
+    merged = { ...existingValue, ...newValue };
   }
 
   const valueStr = JSON.stringify(merged);
   await settingDB.setUserSetting(c.env.DB, user.id, key, valueStr);
-  return c.json({ setting: { key, value: valueStr } });
+  return c.json(formatUserSetting(user.username, key, { key, value: valueStr }));
 });
 
 // --- Personal Access Tokens ---

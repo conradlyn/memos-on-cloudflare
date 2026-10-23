@@ -4,6 +4,7 @@ import { authOptional, authRequired } from "../middleware/auth";
 import * as settingDB from "../db/setting";
 import * as userDB from "../db/user";
 import { getAppVersion } from "../version";
+import { formatUser } from "./users";
 import { deleteCachedKeys, getCachedJson, putCachedJson } from "../cache";
 
 type InstApp = { Bindings: Env; Variables: { user: UserPayload } };
@@ -11,6 +12,18 @@ type InstApp = { Bindings: Env; Variables: { user: UserPayload } };
 export const instanceRoutes = new Hono<InstApp>();
 
 const PUBLIC_INSTANCE_SETTING_KEYS = new Set(["GENERAL", "MEMO_RELATED", "TAGS", "AI"]);
+
+/**
+ * The `version` reported by /api/v1/instance/profile is interpreted by native clients
+ * (MoeMemos, memos CLI, ...) as a Memos server version and gated against their supported
+ * range. MoeMemos 2.x accepts v1 servers in [0.27.0, 0.31.0], so the app version must not
+ * be reported here.
+ */
+const DEFAULT_MEMOS_COMPAT_VERSION = "0.28.0";
+
+function getMemosCompatVersion(env: Pick<Env, "MEMOS_COMPAT_VERSION">): string {
+  return env.MEMOS_COMPAT_VERSION?.trim() || DEFAULT_MEMOS_COMPAT_VERSION;
+}
 
 function getInstanceSettingKey(name: string): string {
   return settingDB.normalizeInstanceSettingName(name).split("/").pop() || "";
@@ -77,19 +90,17 @@ instanceRoutes.get("/profile", async (c) => {
   if (userCount > 0) {
     const adminUser = await c.env.DB.prepare(
       "SELECT * FROM user WHERE role = 'ADMIN' ORDER BY created_ts ASC LIMIT 1"
-    ).first<any>();
+    ).first<userDB.UserRow>();
     if (adminUser) {
-      admin = {
-        name: `users/${adminUser.username}`,
-        username: adminUser.username,
-        nickname: adminUser.nickname,
-        role: 2,
-      };
+      // Must be a fully-formed Memos v1 User (role/username/state are required by the
+      // generated client schemas, and `state` must be an enum string, not a numeric role).
+      admin = formatUser(adminUser);
     }
   }
 
   const response = {
-    version: getAppVersion(c.env),
+    version: getMemosCompatVersion(c.env),
+    appVersion: getAppVersion(c.env),
     mode: "prod",
     admin,
     ...profile,
