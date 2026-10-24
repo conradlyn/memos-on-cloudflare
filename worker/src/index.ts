@@ -10,6 +10,7 @@ import { fileRoutes } from "./routes/files";
 import { instanceRoutes } from "./routes/instance";
 import { healthRoutes } from "./routes/health";
 import { shortcutRoutes } from "./routes/shortcuts";
+import { memoViewRoutes } from "./routes/memo-views";
 import { idpRoutes } from "./routes/idp";
 import { aiRoutes } from "./routes/ai";
 import { sseRoutes } from "./routes/sse";
@@ -36,6 +37,9 @@ app.get("/api/v1/user/me", authRequired, async (c) => {
   });
 });
 app.route("/api/v1/memos", memoRoutes);
+// Memo views own `/api/v1/users/:username/views`, so they must be registered
+// before the broader `/api/v1/users` app to win route matching.
+app.route("/api/v1", memoViewRoutes);
 app.route("/api/v1/users", userRoutes);
 app.route("/api/v1/attachments", attachmentRoutes);
 app.route("/api/v1/instance", instanceRoutes);

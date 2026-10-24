@@ -149,7 +149,19 @@ authRoutes.post("/signin", async (c) => {
     let username: string;
     let password: string;
 
-    if (body.credentials?.value) {
+    // Accept every shape a v1 client might use for the `credentials` oneof:
+    //  - proto3 JSON:      {"passwordCredentials": {"username": ..., "password": ...}}
+    //  - Connect wrapper:  {"credentials": {"case": "passwordCredentials", "value": {...}}}
+    //  - legacy wrapper:   {"credentials": {"value": {...}}}   (bundled web client)
+    //  - flat:             {"username": ..., "password": ...}
+    const passwordCredentials =
+      body.passwordCredentials ??
+      (body.credentials?.case === "passwordCredentials" ? body.credentials.value : undefined);
+
+    if (passwordCredentials) {
+      username = passwordCredentials.username;
+      password = passwordCredentials.password;
+    } else if (body.credentials?.value) {
       username = body.credentials.value.username;
       password = body.credentials.value.password;
     } else {

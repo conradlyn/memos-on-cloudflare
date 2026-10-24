@@ -225,6 +225,36 @@ npm run dev:web
 
 > 最后一条是最容易踩的坑：JSON 完全合法、字段类型全对，但客户端仍报「未能读取数据，因为它的格式不正确」。原因是 `Date#toISOString()` 永远输出 `.000Z`，而原版 Memos（Go protojson）输出的是不带小数的 `Z`。
 
+### 备忘录视图（Memo Views）
+
+对齐上游 Memos 0.31 的 `UserService.*MemoView`。一个视图就是一条命名的、可复用的 CEL 过滤表达式，把 `filter` 原样传给 `ListMemos` 即可复用。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/api/v1/users/{user}/views` | 返回 `{ memoViews: MemoView[] }` |
+| `GET` | `/api/v1/users/{user}/views/{view}` | 单个视图 |
+| `POST` | `/api/v1/users/{user}/views` | 请求体即 `MemoView`：`{ title, filter, icon? }`，返回 `200` |
+| `PATCH` | `/api/v1/users/{user}/views/{view}` | 支持 `?updateMask=title,filter,icon` |
+| `DELETE` | `/api/v1/users/{user}/views/{view}` | 返回 `{}` |
+
+- `icon` 是 oneof，只能给 `{"emoji":"🕐"}` 或 `{"lucide":"pin"}` 其中之一
+- 显式传 `updateMask=icon` 且不带 `icon` 表示重置为默认图标；不带 `updateMask` 的 PATCH 不会误清图标
+- 视图存在用户设置 `memo_views` 里，**无需数据库迁移**；首次读取时会从旧版 `shortcuts` 自动播种一次
+- 旧的 `/api/v1/shortcuts` 保持不变，网页端继续可用
+
+过滤表达式支持上游 0.30 起的 CEL 时间变量：
+
+```
+created_ts >= now - duration("168h")
+timestamp(1750000000)
+```
+
+`now`、`duration()`、`timestamp()` 与旧的 `now()` 写法同时可用；`duration` 按 Go 的 `time.ParseDuration` 语义解析（`ns`/`us`/`ms`/`s`/`m`/`h`）。
+
+### 与上游 main 的取舍
+
+上游 main 正在做一次破坏性重构（REST 从 `/api/v1/*` 迁到 `/api/*`、proto 包改名、AIP 风格字段批量重命名、枚举与字段号重排、访问令牌绑定密码哈希）。**本项目不跟进这些改动**，兼容基线锁定在 `v0.31.0`，否则 MoeMemos 等既有客户端会立即失联。
+
 ## 功能特性
 
 - Markdown 备忘录（支持标签、代码块、任务列表、Mermaid 图表）

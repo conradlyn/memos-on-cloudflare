@@ -72,6 +72,18 @@ const SCALAR_FIELD_SQL: Record<string, string> = {
 
 const VISIBILITY_VALUES = new Set(["PUBLIC", "PROTECTED", "PRIVATE"]);
 
+/** Go duration units, in seconds. Mirrors `time.ParseDuration`. */
+const DURATION_UNIT_SECONDS: Record<string, number> = {
+  ns: 1e-9,
+  us: 1e-6,
+  "µs": 1e-6,
+  "μs": 1e-6,
+  ms: 1e-3,
+  s: 1,
+  m: 60,
+  h: 3600,
+};
+
 function tokenize(input: string): Token[] {
   const tokens: Token[] = [];
   let index = 0;
@@ -421,11 +433,54 @@ function getLiteralArray(node: AstNode, ctx: CompileContext): LiteralValue[] {
   return value;
 }
 
+/**
+ * Parses a Go-style duration literal (`"168h"`, `"1h30m"`, `"300ms"`) into
+ * seconds. Memos 0.30 moved filters onto CEL timestamps, so the canonical saved
+ * view filter is `created_ts >= now - duration("24h")`.
+ */
+function parseDurationLiteral(raw: string): number {
+  const text = raw.trim();
+  if (!text) {
+    throw new MemoFilterError("duration() expects a non-empty duration string");
+  }
+
+  let sign = 1;
+  let rest = text;
+  if (rest.startsWith("-")) {
+    sign = -1;
+    rest = rest.slice(1);
+  } else if (rest.startsWith("+")) {
+    rest = rest.slice(1);
+  }
+  if (rest === "0") {
+    return 0;
+  }
+
+  const unitPattern = /^(\d+(?:\.\d+)?|\.\d+)(ns|us|µs|μs|ms|s|m|h)/;
+  let total = 0;
+  let index = 0;
+  while (index < rest.length) {
+    const match = unitPattern.exec(rest.slice(index));
+    if (!match) {
+      throw new MemoFilterError(`Invalid duration '${raw}'`);
+    }
+    total += Number(match[1]) * DURATION_UNIT_SECONDS[match[2]];
+    index += match[0].length;
+  }
+
+  return sign * total;
+}
+
 function evaluateStatic(node: AstNode, ctx: CompileContext): LiteralValue | LiteralValue[] {
   switch (node.type) {
     case "literal":
       return node.value;
     case "identifier":
+      // Memos 0.30 replaced the `now()` call with a bare `now` timestamp
+      // variable, so saved filters read `created_ts >= now - duration("24h")`.
+      if (node.name === "now") {
+        return ctx.nowSeconds;
+      }
       if (VISIBILITY_VALUES.has(node.name)) {
         return node.name;
       }
@@ -442,6 +497,16 @@ function evaluateStatic(node: AstNode, ctx: CompileContext): LiteralValue | Lite
       const name = getCallName(node.callee);
       if (name === "now" && node.args.length === 0) {
         return ctx.nowSeconds;
+      }
+      if (name === "duration" && node.args.length === 1) {
+        return parseDurationLiteral(getStringLiteral(node.args[0], ctx));
+      }
+      if (name === "timestamp" && node.args.length === 1) {
+        const value = evaluateStatic(node.args[0], ctx);
+        if (typeof value !== "number") {
+          throw new MemoFilterError("timestamp() expects a numeric epoch value");
+        }
+        return Math.trunc(value);
       }
       throw new MemoFilterError(`Unsupported function '${name || "unknown"}'`);
     }
