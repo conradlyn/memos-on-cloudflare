@@ -16,6 +16,35 @@ const UNSAFE_MIME_TYPES = new Set([
   "application/xhtml+xml",
 ]);
 
+/**
+ * Decodes a `data:` URI into raw bytes.
+ *
+ * Avatars written before this change are stored inline as base64 data URIs. They are
+ * decoded here rather than migrated so the API can hand out a short `/file/...` path
+ * immediately, with no production data migration required.
+ */
+function decodeDataUri(uri: string): { bytes: Uint8Array; contentType: string } | null {
+  const match = /^data:([^;,]+)((?:;[^,]*)*),(.*)$/s.exec(uri);
+  if (!match) {
+    return null;
+  }
+
+  const [, contentType, params, payload] = match;
+  try {
+    if (params.includes(";base64")) {
+      const binary = atob(payload);
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index += 1) {
+        bytes[index] = binary.charCodeAt(index);
+      }
+      return { bytes, contentType };
+    }
+    return { bytes: new TextEncoder().encode(decodeURIComponent(payload)), contentType };
+  } catch {
+    return null;
+  }
+}
+
 function parseRangeHeader(rangeHeader: string | undefined, totalSize: number) {
   if (!rangeHeader || totalSize <= 0) {
     return undefined;
@@ -189,6 +218,20 @@ fileRoutes.get("/users/:identifier/avatar", async (c) => {
     return new Response(svg, {
       headers: { "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=3600" },
     });
+  }
+
+  // Inline base64 avatars: decode on the fly instead of redirecting to a data URI,
+  // which is not a valid redirect target.
+  if (user.avatar_url.startsWith("data:")) {
+    const decoded = decodeDataUri(user.avatar_url);
+    if (decoded) {
+      return new Response(decoded.bytes, {
+        headers: {
+          "Content-Type": decoded.contentType,
+          "Cache-Control": "public, max-age=3600",
+        },
+      });
+    }
   }
 
   // If avatar is an R2 reference

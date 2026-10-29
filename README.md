@@ -114,18 +114,22 @@ Cloudflare 原生支持把 Worker 连接到 GitHub 仓库，**推送即构建部
 - 非 `main` 分支默认走 Preview 构建（`npx wrangler preview`），不影响生产
 - **与 GitHub Actions 二选一**，同时启用会导致同一次推送部署两次
 
-## GitHub Actions 自动部署
+## GitHub Actions 部署（备份通道）
 
-推送到 `main` 分支会自动触发部署。需要在 GitHub 仓库 Settings → Secrets and variables → Actions 中添加：
+> **推送即部署请用上面的 Workers Builds。** 这个 workflow 现在只在 Actions 页面手动触发（`workflow_dispatch`），不再跟随 push。
+>
+> 原因：它需要 `CLOUDFLARE_API_TOKEN` 具备 **D1:Edit** 权限，否则「Apply D1 migrations」必然失败，每次推送都会在提交上挂一个红叉。Workers Builds 生成的 token 不含该权限，所以两条链路无法共用同一份配置。
+
+手动触发前需要在 GitHub 仓库 Settings → Secrets and variables → Actions 中添加：
 
 | Secret | 说明 |
 |--------|------|
 | `CLOUDFLARE_API_TOKEN` | Cloudflare API Token（需要 Workers Scripts:Edit、D1:Edit、R2:Edit 权限） |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare Account ID（在 Dashboard 右侧栏可找到） |
 
-工作流会自动完成：安装依赖 → 构建前端 → 执行数据库迁移 → 部署 Worker。
+工作流会完成：安装依赖 → 构建前端 → 执行数据库迁移 → 部署 Worker。
 
-> fork 仓库的 Actions 默认不会运行，需先在仓库 **Actions** 页面点击启用工作流，之后可用 **Run workflow** 手动触发（`workflow_dispatch`）。
+> fork 仓库的 Actions 默认不会运行，需先在仓库 **Actions** 页面点击启用工作流。
 
 ## 本地开发
 
@@ -226,6 +230,16 @@ npm run dev:web
 | `Memo.location` | `latitude`/`longitude` 必须是 **number**。若历史数据存成字符串（`"30.25"`），Swift 解 `Double` 会抛 `DecodingError`，整个备忘录列表都解不出来。`normalizeLocation()` 在输出时统一转数值，非法坐标直接丢弃 |
 
 > 最后一条是最容易踩的坑：JSON 完全合法、字段类型全对，但客户端仍报「未能读取数据，因为它的格式不正确」。原因是 `Date#toISOString()` 永远输出 `.000Z`，而原版 Memos（Go protojson）输出的是不带小数的 `Z`。
+
+### 头像地址
+
+`User.avatarUrl` 不会返回内嵌的 base64。存在 `data:` URI 或 `avatars/` R2 引用时，统一返回短路径 `/file/users/{user}/avatar`，由 `worker/src/routes/files.ts` 解码后输出图片。
+
+这样做的原因：单个 base64 头像约 60 KB，内嵌会让 `/api/v1/instance/profile` 和 `/api/v1/users/{user}` 的响应各膨胀到 60 KB，移动端每次同步都要白下载一遍。改成路径后响应降到 300 字节左右。
+
+客户端无需特殊处理——MoeMemos 会把无 host 的 URL 拼到实例地址上（`MemosV1Service` 中 `url.host() == nil` 分支），Web 端 `<img src>` 直接可用。外部 URL 头像（如 SSO 返回的）保持原样返回。
+
+> 注意：`PATCH /api/v1/users/{user}` 会忽略客户端回传的这个派生路径。否则「读-改-写」会把 `/file/...` 写进 `avatar_url`，导致头像路由重定向到自己。
 
 ### 备忘录视图（Memo Views）
 

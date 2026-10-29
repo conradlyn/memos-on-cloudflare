@@ -30,6 +30,23 @@ const getGeneralSetting = async (db: D1Database) => {
   }
 };
 
+/**
+ * Returns the avatar URL to expose over the API.
+ *
+ * Avatars stored as inline `data:` URIs or R2 references are served through
+ * `/file/users/{user}/avatar` instead of being echoed verbatim: a single base64
+ * avatar is ~60 KB, and inlining it bloated every profile and user payload by that
+ * much. Clients already resolve relative URLs against the instance host
+ * (MoeMemos does it in MemosV1Service, the web client just uses `<img src>`).
+ */
+function resolveAvatarUrl(user: Pick<userDB.UserRow, "username" | "avatar_url">): string {
+  const raw = user.avatar_url || "";
+  if (raw.startsWith("data:") || raw.startsWith("avatars/")) {
+    return `/file/users/${user.username}/avatar`;
+  }
+  return raw;
+}
+
 export function formatUser(user: userDB.UserRow, options: { includeEmail?: boolean } = {}) {
   return {
     name: `users/${user.username}`,
@@ -39,7 +56,7 @@ export function formatUser(user: userDB.UserRow, options: { includeEmail?: boole
     displayName: user.nickname,
     nickname: user.nickname,
     email: options.includeEmail ? user.email : "",
-    avatarUrl: user.avatar_url,
+    avatarUrl: resolveAvatarUrl(user),
     description: user.description,
     // Memos v1 API requires `state`; native clients (MoeMemos, etc.) fail to decode
     // the user payload when only the legacy `rowStatus` field is present.
@@ -390,7 +407,15 @@ userRoutes.patch("/:username", authRequired, async (c) => {
     updateData.nickname = body.nickname ?? body.displayName;
   }
   if (body.email !== undefined) updateData.email = body.email;
-  if (body.avatarUrl !== undefined) updateData.avatar_url = body.avatarUrl;
+  if (body.avatarUrl !== undefined) {
+    // `formatUser` replaces inline avatars with `/file/users/{user}/avatar`. A client
+    // doing read-modify-write would echo that path back and overwrite the real value,
+    // turning the avatar route into a redirect to itself. Treat it as "unchanged".
+    const echoedPaths = new Set([`/file/users/${user.username}/avatar`, `/file/users/${user.id}/avatar`]);
+    if (!echoedPaths.has(String(body.avatarUrl))) {
+      updateData.avatar_url = body.avatarUrl;
+    }
+  }
   if (body.description !== undefined) updateData.description = body.description;
   if (body.password) updateData.password_hash = await hashPassword(body.password);
   if (body.role && currentUser.role === "ADMIN") updateData.role = body.role;
@@ -763,7 +788,7 @@ userRoutes.get("/:username/notifications", authRequired, async (c) => {
         name: `users/${sender.username}`,
         username: sender.username,
         displayName: sender.nickname || sender.username,
-        avatarUrl: sender.avatar_url || "",
+        avatarUrl: resolveAvatarUrl(sender),
       } : undefined,
       status: statusMap[row.status] || 0,
       createTime: { seconds: row.created_ts, nanos: 0 },
