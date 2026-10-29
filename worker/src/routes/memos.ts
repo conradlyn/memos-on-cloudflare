@@ -70,6 +70,7 @@ function isBlockedLinkMetadataHostname(hostname: string): boolean {
     first === 0 ||
     first === 10 ||
     first === 127 ||
+    (first === 100 && second >= 64 && second <= 127) || // CGNAT (RFC 6598)
     (first === 169 && second === 254) ||
     (first === 172 && second >= 16 && second <= 31) ||
     (first === 192 && second === 168)
@@ -132,8 +133,43 @@ function parseMemoPayload(content: string) {
   };
 }
 
+function toFiniteNumber(value: unknown): number | undefined {
+  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+/**
+ * Coerces a stored location into the shape clients expect.
+ *
+ * MoeMemos decodes `latitude`/`longitude` as `Double`, so a location persisted as
+ * strings (from an import, or from a hand-written API call) makes the whole memo fail
+ * to decode. Coordinates that are not finite numbers are dropped rather than forwarded.
+ */
+function normalizeLocation(value: unknown): { placeholder?: string; latitude?: number; longitude?: number } | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const raw = value as Record<string, unknown>;
+  const result: { placeholder?: string; latitude?: number; longitude?: number } = {};
+
+  if (typeof raw.placeholder === "string" && raw.placeholder.trim() !== "") {
+    result.placeholder = raw.placeholder;
+  }
+
+  const latitude = toFiniteNumber(raw.latitude);
+  const longitude = toFiniteNumber(raw.longitude);
+  if (latitude !== undefined && longitude !== undefined) {
+    result.latitude = latitude;
+    result.longitude = longitude;
+  }
+
+  return Object.keys(result).length > 0 ? result : null;
+}
+
 function formatMemo(memo: memoDB.MemoRow, creatorUsername?: string) {
   const payload = JSON.parse(memo.payload || "{}");
+  const storedProperty = payload.property || {};
   return {
     name: `memos/${memo.uid}`,
     creator: `users/${creatorUsername || memo.creator_id}`,
@@ -144,8 +180,14 @@ function formatMemo(memo: memoDB.MemoRow, creatorUsername?: string) {
     visibility: memo.visibility,
     pinned: memo.pinned === 1,
     tags: payload.tags || [],
-    property: payload.property || {},
-    location: payload.location || null,
+    // `hasIncompleteTasks` (plural) is the name the v1 schema declares and native
+    // clients decode. Older rows only stored the singular spelling, so it is derived
+    // here rather than at write time to cover existing data too.
+    property: {
+      ...storedProperty,
+      hasIncompleteTasks: Boolean(storedProperty.hasIncompleteTasks ?? storedProperty.hasIncompleteTask),
+    },
+    location: normalizeLocation(payload.location),
     parent: payload.parent || "",
   };
 }

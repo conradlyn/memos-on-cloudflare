@@ -222,6 +222,8 @@ npm run dev:web
 | `UserStats` | 路径为 `/api/v1/users/{user}:getStats`（自定义动词后缀），`pinnedMemos` 为资源名字符串数组 |
 | `MemoRelation` | 返回 `{memo:{name,snippet}, relatedMemo:{...}, type}`，而非数据库原始行 |
 | 时间戳格式 | 所有 `date-time` 字段必须是**整秒** RFC 3339（`2026-08-02T01:11:30Z`），**不能带毫秒**（`...30.000Z`）。Swift 客户端的 `ISO8601DateFormatter()` 默认不含 `.withFractionalSeconds`，遇到毫秒直接返回 `nil`，解码抛错。统一走 `worker/src/time.ts` 的 `protoTimestamp()` |
+| `Memo.property.hasIncompleteTasks` | 字段名是**复数**。历史数据里存的是单数 `hasIncompleteTask`，`formatMemo` 在输出时补成复数，否则客户端读不到该属性（不报错，但功能静默失效） |
+| `Memo.location` | `latitude`/`longitude` 必须是 **number**。若历史数据存成字符串（`"30.25"`），Swift 解 `Double` 会抛 `DecodingError`，整个备忘录列表都解不出来。`normalizeLocation()` 在输出时统一转数值，非法坐标直接丢弃 |
 
 > 最后一条是最容易踩的坑：JSON 完全合法、字段类型全对，但客户端仍报「未能读取数据，因为它的格式不正确」。原因是 `Date#toISOString()` 永远输出 `.000Z`，而原版 Memos（Go protojson）输出的是不带小数的 `Z`。
 
@@ -251,9 +253,38 @@ timestamp(1750000000)
 
 `now`、`duration()`、`timestamp()` 与旧的 `now()` 写法同时可用；`duration` 按 Go 的 `time.ParseDuration` 语义解析（`ns`/`us`/`ms`/`s`/`m`/`h`）。
 
+### 过滤器属性
+
+`filter` 支持以下布尔属性，可单独使用或与 `&&`、`||`、`!` 组合：
+
+| 属性 | 为真的条件 |
+|------|-----------|
+| `pinned` | 已置顶 |
+| `has_link` | 正文含链接 |
+| `has_task_list` | 正文含任务列表 |
+| `has_code` | 正文含代码块 |
+| `has_incomplete_tasks` | 含未勾选的任务项 |
+| `has_location` | 带经纬度坐标（仅有空 `location` 对象不算） |
+| `has_attachments` | 关联了附件 |
+| `has_image` | 关联了 `image/*` 附件，或正文含 Markdown 图片 `![]()` |
+
+### 已合并的上游改进
+
+以下改动来自上游 26.10，属于内部行为修正，**不改变任何响应字段结构**，因此可以安全合并：
+
+| 改动 | 说明 |
+|------|------|
+| CGNAT 出站拦截 | `linkMetadata` 抓取链接时拒绝 `100.64.0.0/10`（RFC 6598），此前只拦了 `10/8`、`127/8`、`172.16/12`、`192.168/16`、`169.254/16` |
+| 评论线程级联删除 | 删除备忘录时一并删除整条评论线程（含嵌套回复），并清理 `memo_relation`、`reaction`、`memo_share`；附件不删，只解除关联 |
+| 最后管理员保护 | 删除实例最后一个 `ADMIN` 返回 `400 Cannot remove the last admin` |
+| 健康检查探活 | `/api/v1/health` 与 `/healthz` 执行 `SELECT 1`，数据库不可用时返回 `503` |
+| 匿名隐藏管理员 | 未认证请求访问 `instance/profile` 时，`admin.username` 与 `admin.name` 返回空字符串（字段本身保留，因为 `User.username` 是必填非可选） |
+
 ### 与上游 main 的取舍
 
-上游 main 正在做一次破坏性重构（REST 从 `/api/v1/*` 迁到 `/api/*`、proto 包改名、AIP 风格字段批量重命名、枚举与字段号重排、访问令牌绑定密码哈希）。**本项目不跟进这些改动**，兼容基线锁定在 `v0.31.0`，否则 MoeMemos 等既有客户端会立即失联。
+上游已改用日历版本号（`26.10.0-rc.2`），并完成一次破坏性重构：REST 从 `/api/v1/*` 迁到 `/api/*`（**v1 路径直接返回 `410 Gone`**，下个版本删除）、proto 包 `memos.api.v1` 改名 `memos.api`、AIP 风格字段批量重命名、枚举与字段号重排、访问令牌绑定密码哈希。
+
+**本项目不跟进这些改动**，兼容基线锁定在 `v0.31.0`——它是 v1 契约的最后一个版本，也正好是 MoeMemos 支持区间的上界。上游维护者在 [MoeMemos#420](https://github.com/mudkipme/MoeMemos/issues/420) 中亦确认 26.10 尚未被客户端支持。
 
 ## 功能特性
 

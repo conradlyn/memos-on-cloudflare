@@ -199,6 +199,64 @@ export async function updateMemo(
   return db.prepare(query).bind(...values).first<MemoRow>();
 }
 
+/**
+ * Deletes a memo together with its whole comment thread and every record that
+ * points at those memos.
+ *
+ * Comments are ordinary memo rows whose `payload.parent` names the parent memo as
+ * a resource (`memos/{uid}`), so removing only the parent row would leave every
+ * reply orphaned: still stored, still counted, but unreachable through the API.
+ * Relations, reactions and shares reference memos by id or uid and would rot the
+ * same way, so they are cleared in the same transaction.
+ *
+ * Traversal is iterative rather than recursive so a deep thread cannot exhaust the
+ * stack, and it walks to a fixed point because a reply may itself be replied to.
+ */
 export async function deleteMemo(db: D1Database, id: number): Promise<void> {
-  await db.prepare("DELETE FROM memo WHERE id = ?").bind(id).run();
+  const ids = new Set<number>([id]);
+  const uids = new Set<string>();
+  const root = await db.prepare("SELECT uid FROM memo WHERE id = ?").bind(id).first<{ uid: string }>();
+
+  if (root?.uid) {
+    uids.add(root.uid);
+    const queue: string[] = [`memos/${root.uid}`];
+    while (queue.length > 0) {
+      const parent = queue.shift()!;
+      const { results } = await db
+        .prepare("SELECT id, uid FROM memo WHERE json_extract(payload, '$.parent') = ?")
+        .bind(parent)
+        .all<{ id: number; uid: string }>();
+
+      for (const row of results || []) {
+        if (ids.has(row.id)) {
+          continue;
+        }
+        ids.add(row.id);
+        uids.add(row.uid);
+        queue.push(`memos/${row.uid}`);
+      }
+    }
+  }
+
+  const statements: D1PreparedStatement[] = [];
+  for (const memoId of ids) {
+    statements.push(db.prepare("DELETE FROM memo_relation WHERE memo_id = ? OR related_memo_id = ?").bind(memoId, memoId));
+    statements.push(db.prepare("DELETE FROM memo_share WHERE memo_id = ?").bind(memoId));
+    // Attachments outlive the memo: the file stays addressable, it just loses its owner.
+    statements.push(db.prepare("UPDATE attachment SET memo_id = NULL WHERE memo_id = ?").bind(memoId));
+  }
+  for (const uid of uids) {
+    statements.push(db.prepare("DELETE FROM reaction WHERE content_id = ?").bind(uid));
+  }
+  for (const memoId of ids) {
+    statements.push(db.prepare("DELETE FROM memo WHERE id = ?").bind(memoId));
+  }
+
+  // D1 caps how much a single batch may carry, so long threads are flushed in slices.
+  // Ordinary threads fit in one batch and stay atomic; oversized ones degrade to
+  // several atomic batches rather than failing outright.
+  const CHUNK_SIZE = 40;
+  for (let index = 0; index < statements.length; index += CHUNK_SIZE) {
+    await db.batch(statements.slice(index, index + CHUNK_SIZE));
+  }
 }

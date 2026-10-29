@@ -59,11 +59,31 @@ function sanitizePublicInstanceSettingValue(name: string, value: string): string
   }
 }
 
+/**
+ * Hides the administrator's identity from anonymous callers.
+ *
+ * The generated clients declare `User.username` as required and non-optional, so the
+ * field has to become an empty string rather than disappear — dropping it would make
+ * strict decoders (MoeMemos, any OpenAPI-generated client) reject the whole profile.
+ * `name` is the resource form `users/{username}` and leaks the same value, so it is
+ * cleared alongside it. Authenticated callers still receive the full record.
+ */
+function redactAdminForAnonymous<T extends Record<string, any>>(profile: T): T {
+  if (!profile.admin || typeof profile.admin !== "object") {
+    return profile;
+  }
+  return {
+    ...profile,
+    admin: { ...profile.admin, username: "", name: "" },
+  } as T;
+}
+
 // Get instance profile
-instanceRoutes.get("/profile", async (c) => {
-  const cached = await getCachedJson(c.env.CACHE, "instance:profile");
+instanceRoutes.get("/profile", authOptional, async (c) => {
+  const currentUser = c.get("user");
+  const cached = await getCachedJson<Record<string, any>>(c.env.CACHE, "instance:profile");
   if (cached) {
-    return c.json(cached);
+    return c.json(currentUser ? cached : redactAdminForAnonymous(cached));
   }
 
   const userCount = await userDB.countUsers(c.env.DB);
@@ -107,7 +127,7 @@ instanceRoutes.get("/profile", async (c) => {
   };
 
   await putCachedJson(c.env.CACHE, "instance:profile", response, 600);
-  return c.json(response);
+  return c.json(currentUser ? response : redactAdminForAnonymous(response));
 });
 
 // List instance settings

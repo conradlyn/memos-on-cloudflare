@@ -8,7 +8,7 @@ import { userRoutes } from "./routes/users";
 import { attachmentRoutes } from "./routes/attachments";
 import { fileRoutes } from "./routes/files";
 import { instanceRoutes } from "./routes/instance";
-import { healthRoutes } from "./routes/health";
+import { healthRoutes, healthHandler } from "./routes/health";
 import { shortcutRoutes } from "./routes/shortcuts";
 import { memoViewRoutes } from "./routes/memo-views";
 import { idpRoutes } from "./routes/idp";
@@ -44,6 +44,8 @@ app.route("/api/v1/users", userRoutes);
 app.route("/api/v1/attachments", attachmentRoutes);
 app.route("/api/v1/instance", instanceRoutes);
 app.route("/api/v1/health", healthRoutes);
+// Unversioned alias for uptime monitors and container probes; mirrors upstream's /healthz.
+app.get("/healthz", healthHandler);
 app.route("/api/v1/shortcuts", shortcutRoutes);
 app.route("/api/v1/idps", idpRoutes);
 app.route("/api/v1/ai", aiRoutes);

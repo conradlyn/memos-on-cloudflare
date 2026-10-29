@@ -59,6 +59,13 @@ const BOOLEAN_FIELD_SQL: Record<string, string> = {
   has_code: "COALESCE(json_extract(memo.payload, '$.property.hasCode'), 0)",
   has_incomplete_task: "COALESCE(json_extract(memo.payload, '$.property.hasIncompleteTask'), 0)",
   has_incomplete_tasks: "COALESCE(json_extract(memo.payload, '$.property.hasIncompleteTask'), 0)",
+  // A location only counts when it carries coordinates; a stray empty object in the
+  // payload should not make the memo show up as located.
+  has_location: "CASE WHEN json_extract(memo.payload, '$.location.latitude') IS NULL THEN 0 ELSE 1 END",
+  has_attachments: "EXISTS (SELECT 1 FROM attachment WHERE attachment.memo_id = memo.id)",
+  // Matches upstream: either an image file is attached, or the body embeds a Markdown image.
+  has_image:
+    "(EXISTS (SELECT 1 FROM attachment WHERE attachment.memo_id = memo.id AND attachment.type LIKE 'image/%') OR instr(memo.content, '![') > 0)",
 };
 
 const SCALAR_FIELD_SQL: Record<string, string> = {
@@ -384,6 +391,12 @@ function normalizeFieldName(field: string): string {
     case "property.hasIncompleteTask":
     case "property.hasIncompleteTasks":
       return "has_incomplete_tasks";
+    case "property.hasLocation":
+      return "has_location";
+    case "property.hasAttachments":
+      return "has_attachments";
+    case "property.hasImage":
+      return "has_image";
     default:
       if (field === "has_incomplete_task") {
         return "has_incomplete_tasks";

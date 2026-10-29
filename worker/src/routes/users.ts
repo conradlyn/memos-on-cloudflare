@@ -433,6 +433,17 @@ userRoutes.delete("/:username", authRequired, async (c) => {
   const user = await userDB.findUserByUsername(c.env.DB, username);
   if (!user) return c.json({ error: "User not found" }, 404);
 
+  // Removing the last active administrator would leave the instance unmanageable
+  // with no way back through the API, so refuse it before touching any row.
+  if (user.role === "ADMIN" && user.row_status === "NORMAL") {
+    const remaining = await c.env.DB.prepare(
+      "SELECT COUNT(*) AS count FROM user WHERE role = 'ADMIN' AND row_status = 'NORMAL'"
+    ).first<{ count: number }>();
+    if ((remaining?.count ?? 0) <= 1) {
+      return c.json({ error: "Cannot remove the last admin" }, 400);
+    }
+  }
+
   await userDB.deleteUser(c.env.DB, user.id);
   await deleteCachedKeys(c.env.CACHE, ["instance:profile", "user:stats:all", "user:stats:all:public", ...getUserStatsCacheKeys(user.username)]);
   return c.json({});
